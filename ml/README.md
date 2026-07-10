@@ -34,6 +34,10 @@ Prints overall + per-id AUC and writes `artifacts/model.keras` and `artifacts/me
 Extracted log-mel vectors are cached under `artifacts/feature_cache/`, so later runs do
 not process the same WAV files again.
 
+Feature-wise mean and standard deviation are learned from normal training data only and
+saved to `artifacts/normalization.npz`. The same transformation must be applied before
+inference on the ESP32.
+
 Start with a small end-to-end experiment before the full run:
 
 ```bash
