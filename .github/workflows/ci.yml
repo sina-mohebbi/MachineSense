@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ml:
+    name: ML (lint + dataset-free tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ml
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install deps
+        run: pip install -r requirements.txt ruff
+      - name: Lint
+        run: ruff check .
+      - name: Smoke tests (build model, train 1 step, int8 export)
+        run: pytest -q
+
+  # --- Phase 4 will enable these -------------------------------------------
+  # firmware-build:
+  #   name: Build ESP32 firmware (ESP-IDF, Docker-pinned)
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: espressif/esp-idf-ci-action@v1
+  #       with: { esp_idf_version: v5.2, target: esp32, path: firmware }
+  #
+  # native-tests:
+  #   name: Native unit tests (Unity, host x86)
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - run: cmake -S firmware/test -B build && cmake --build build && ctest --test-dir build
