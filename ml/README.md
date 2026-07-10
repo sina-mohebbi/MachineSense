@@ -50,10 +50,12 @@ These limits are for pipeline validation only; do not report their AUC as the fi
 
 ```bash
 python export_tflite.py
+python evaluate_tflite.py
 ```
 
 Writes `artifacts/model_int8.tflite` and `artifacts/model_data.cc` (+ `.h`). In Phase 1
-these get copied into `firmware/main/` and compiled into the ESP32 image.
+these get copied into `firmware/main/` and compiled into the ESP32 image. The evaluation
+command writes `artifacts/metrics_int8.json` so quantization can be compared with float32.
 
 ## Files
 
@@ -64,6 +66,7 @@ these get copied into `firmware/main/` and compiled into the ESP32 image.
 | `model.py` | the autoencoder topology |
 | `train.py` | train + AUC evaluation + save artifacts |
 | `export_tflite.py` | int8 quantization + C-header emit |
+| `evaluate_tflite.py` | host int8 AUC evaluation before device deployment |
 | `tests/test_smoke.py` | dataset-free tests (also run in CI) |
 
 ## How the anomaly score works
