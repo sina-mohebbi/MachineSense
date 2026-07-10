@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# ML data & artifacts (large / generated)
+ml/data/
+ml/artifacts/
+*.wav
+*.keras
+*.tflite
+
+# Generated firmware model (regenerated from ml/)
+firmware/main/model_data.cc
+
+# ESP-IDF build
+firmware/build/
+firmware/sdkconfig
+firmware/sdkconfig.old
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
