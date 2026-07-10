@@ -35,12 +35,14 @@ EPOCHS = 100
 BATCH = 512
 LR = 1e-3
 VAL_SPLIT = 0.1
+PATIENCE = 10
 SEED = 42
 
 # --- Export ------------------------------------------------------------------
 MODEL_KERAS = ARTIFACTS / "model.keras"
 REP_VECTORS = ARTIFACTS / "rep_vectors.npy"      # representative set for int8 calibration
 NORMALIZATION = ARTIFACTS / "normalization.npz"  # training-set mean/std for ESP32 input
+HISTORY = ARTIFACTS / "history.json"
 TFLITE_INT8 = ARTIFACTS / "model_int8.tflite"
 C_HEADER = ARTIFACTS / "model_data.cc"           # copy into firmware/main/ for Phase 1
 C_VAR_NAME = "g_model_data"

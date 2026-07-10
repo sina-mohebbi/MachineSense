@@ -38,6 +38,11 @@ Feature-wise mean and standard deviation are learned from normal training data o
 saved to `artifacts/normalization.npz`. The same transformation must be applied before
 inference on the ESP32.
 
+Validation is split by complete WAV files, preventing overlapping feature windows from
+the same recording appearing in both training and validation. Early stopping restores
+the weights with the best validation loss, and `artifacts/history.json` stores the loss
+curves.
+
 Start with a small end-to-end experiment before the full run:
 
 ```bash
