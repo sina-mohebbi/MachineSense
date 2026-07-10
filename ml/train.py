@@ -41,6 +41,7 @@ def file_score(model, path, mean, std) -> float:
 def parse_args():
     parser = argparse.ArgumentParser(description="Train the MachineSense autoencoder")
     parser.add_argument("--epochs", type=int, default=config.EPOCHS)
+    parser.add_argument("--patience", type=int, default=config.PATIENCE)
     parser.add_argument(
         "--max-train-files", type=int, default=None,
         help="Limit normal training clips for a quick experiment",
@@ -88,6 +89,22 @@ def limit_train_files(train_files, maximum):
     return selected
 
 
+def split_train_validation(train_files, fraction=config.VAL_SPLIT):
+    """Create a file-level validation split, preserving every machine ID."""
+    by_id = {}
+    for item in train_files:
+        by_id.setdefault(item[0], []).append(item)
+    fitting, validation = [], []
+    for machine_id in sorted(by_id):
+        group = by_id[machine_id]
+        if len(group) < 2:
+            raise ValueError(f"Need at least two training clips for {machine_id}")
+        validation_count = max(1, int(round(fraction * len(group))))
+        validation.extend(group[:validation_count])
+        fitting.extend(group[validation_count:])
+    return fitting, validation
+
+
 def main() -> None:
     args = parse_args()
     tf.random.set_seed(config.SEED)
@@ -96,23 +113,32 @@ def main() -> None:
 
     train_files, test_files = data.build_dataset()
     train_files = limit_train_files(train_files, args.max_train_files)
+    train_files, validation_files = split_train_validation(train_files)
     test_files = limit_test_files(test_files, args.max_test_per_class)
     print(f"[data] machine={config.MACHINE}  train_clips={len(train_files)}  "
-          f"test_clips={len(test_files)}")
+          f"validation_clips={len(validation_files)}  test_clips={len(test_files)}")
 
     x_train = data.stack_train_vectors(train_files)
-    print(f"[data] training vectors: {x_train.shape}")
+    x_validation = data.stack_train_vectors(validation_files)
+    print(f"[data] training vectors: {x_train.shape}  "
+          f"validation vectors: {x_validation.shape}")
     feature_mean = x_train.mean(axis=0, dtype=np.float64).astype(np.float32)
     feature_std = x_train.std(axis=0, dtype=np.float64).astype(np.float32)
     feature_std[feature_std < 1e-6] = 1.0
     x_train = normalize(x_train, feature_mean, feature_std)
+    x_validation = normalize(x_validation, feature_mean, feature_std)
 
     model = build_autoencoder()
     model.summary()
-    model.fit(
+    history = model.fit(
         x_train, x_train,
         epochs=args.epochs, batch_size=config.BATCH,
-        validation_split=config.VAL_SPLIT, shuffle=True, verbose=2,
+        validation_data=(x_validation, x_validation), shuffle=True, verbose=2,
+        callbacks=[tf.keras.callbacks.EarlyStopping(
+            monitor="val_loss",
+            patience=args.patience,
+            restore_best_weights=True,
+        )],
     )
 
     # --- evaluate AUC --------------------------------------------------------
@@ -139,14 +165,21 @@ def main() -> None:
     rep_idx = np.random.default_rng(0).choice(
         len(x_train), size=min(1000, len(x_train)), replace=False)
     np.save(config.REP_VECTORS, x_train[rep_idx])
+    history_data = {
+        key: [float(value) for value in values]
+        for key, values in history.history.items()
+    }
+    config.HISTORY.write_text(json.dumps(history_data, indent=2))
     metrics = {
         "machine": config.MACHINE,
         "overall_auc": round(float(overall_auc), 4),
         "per_id_auc": per_id,
         "train_vectors": int(x_train.shape[0]),
         "train_clips": len(train_files),
+        "validation_clips": len(validation_files),
         "test_clips": len(test_files),
-        "epochs": args.epochs,
+        "epochs_requested": args.epochs,
+        "epochs_completed": len(history.history["loss"]),
         "feature_dim": config.FEATURE_DIM,
     }
     (config.ARTIFACTS / "metrics.json").write_text(json.dumps(metrics, indent=2))

@@ -22,6 +22,23 @@ def test_train_limit_is_balanced_across_machine_ids():
     assert set(counts.values()) == {3}
 
 
+def test_validation_split_keeps_files_and_ids_separate():
+    files = [
+        (machine_id, f"{machine_id}-{index}.wav")
+        for machine_id in ("id_00", "id_02", "id_04", "id_06")
+        for index in range(10)
+    ]
+
+    fitting, validation = train.split_train_validation(files, fraction=0.2)
+
+    assert len(fitting) == 32
+    assert len(validation) == 8
+    assert set(fitting).isdisjoint(validation)
+    assert {machine_id for machine_id, _ in validation} == {
+        "id_00", "id_02", "id_04", "id_06"
+    }
+
+
 def test_normalize_uses_supplied_statistics():
     vectors = np.array([[1.0, 4.0], [3.0, 8.0]], dtype=np.float32)
     mean = np.array([2.0, 6.0], dtype=np.float32)
