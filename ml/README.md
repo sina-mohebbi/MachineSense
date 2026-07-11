@@ -106,6 +106,7 @@ Artifacts land under `artifacts/per_id/<id>/` (own `model.keras`,
 | `train_per_id.py` | train one autoencoder per machine ID |
 | `export_per_id.py` | int8 quantization + C-header emit, per machine ID |
 | `evaluate_per_id_tflite.py` | host int8 AUC evaluation, per machine ID |
+| `compute_threshold.py` | pick an anomaly threshold from normal-train scores; emit `firmware/main/threshold.h` + report precision/recall/F1 |
 | `tests/test_smoke.py` | dataset-free tests (also run in CI) |
 
 ## How the anomaly score works

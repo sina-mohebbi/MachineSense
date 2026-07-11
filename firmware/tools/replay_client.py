@@ -1,24 +1,22 @@
-"""Phase 1 replay client: stream held-out MIMII test vectors to the ESP32 over
-UART and reconstruct an on-device AUC, with no sensor attached.
+"""Phase 2 replay client: stream held-out MIMII test vectors to the ESP32 over
+UART, reconstruct an on-device AUC, and evaluate anomaly detection at the
+device's threshold -- with no sensor attached.
 
 Protocol (must match firmware/main/main.cc):
-    host  -> device : 640 float32 values, little-endian (2560 bytes -- one
-                       already-normalized log-mel vector)
-    device -> host  : 4 bytes             (float32 LE reconstruction-error score)
+    host  -> device : 640 float32 LE (2560 bytes) -- one normalized log-mel vector
+    device -> host  : 12 bytes -- float32 score, uint32 anomaly flag (0/1),
+                                  uint32 byte-sum checksum of the received request
 
-The device does its own quantization from the float32 vector (matching
-ml/evaluate_per_id_tflite.py's methodology exactly -- see inference.h). An
-earlier version had the host pre-quantize to int8 before sending, which
-quantized the vector twice (once for the wire, once implicitly by comparing
-two independently-dequantized values) and measurably degraded on-device AUC
-(0.858 host int8 AUC vs ~0.58 on-device on real hardware) -- this version
-fixed that.
+The device flags anomalies PER VECTOR (that drives its LED live). The rigorous
+anomaly DECISION is per CLIP: we average a clip's per-vector scores and compare
+that to the threshold, matching ml/compute_threshold.py. So this client reports
+AUC + per-clip precision/recall/F1 at the threshold, and separately checks that
+the device's per-vector flag equals (device score > threshold) as an on-device
+integrity check.
 
 Usage:
     python replay_client.py --port COM5 --machine-id id_02
-    python replay_client.py --mock --machine-id id_02       # no hardware needed,
-                                                              # runs the "device"
-                                                              # step in Python
+    python replay_client.py --mock --machine-id id_02       # no hardware needed
 """
 from __future__ import annotations
 
@@ -33,7 +31,7 @@ import numpy as np
 from sklearn.metrics import roc_auc_score
 
 # ml/ is a sibling of firmware/; reuse its data loading + normalization exactly
-# so the vectors sent over the wire match what evaluate_per_id_tflite.py used.
+# so the vectors sent over the wire match what the ML scripts used.
 ML_DIR = Path(__file__).resolve().parents[2] / "ml"
 sys.path.insert(0, str(ML_DIR))
 
@@ -47,9 +45,9 @@ READY_MARKER = "MACHINESENSE_READY"
 
 
 class Device:
-    """Something that answers one normalized float32 vector with one float32 score."""
+    """Answers one normalized float32 vector with (score, anomaly_flag)."""
 
-    def query(self, vector: np.ndarray) -> float:
+    def query(self, vector: np.ndarray) -> tuple[float, int]:
         raise NotImplementedError
 
 
@@ -61,16 +59,10 @@ class SerialDevice(Device):
         import serial  # local import: only required for real-hardware runs
         import time
 
-        # readline()'s per-call timeout governs each read attempt; boot has quiet
-        # gaps between ROM bootloader / 2nd-stage / app_main output that can each
-        # exceed it without meaning the device is stuck -- ready_timeout below
-        # bounds the whole wait, not any single read.
         self._serial = serial.Serial(port, baud, timeout=timeout)
 
         # pyserial's default DTR/RTS state on open() is not a reliable reset on
-        # every USB-serial chipset, especially on rapid reconnects (observed:
-        # relying on it produced an intermittent boot-time panic). Do the same
-        # explicit, controlled EN-pin reset esptool/idf_monitor use instead.
+        # every USB-serial chipset; do the explicit EN-pin reset esptool uses.
         self._serial.dtr = False
         self._serial.rts = True
         time.sleep(0.1)
@@ -79,9 +71,8 @@ class SerialDevice(Device):
 
         self._wait_for_ready(ready_timeout)
 
-        # Let the device finish booting into its binary loop, then drop any
-        # boot-log bytes still buffered from the readline()-based wait above so
-        # the first raw read(8) starts on a clean frame boundary.
+        # Drop any boot-log bytes still buffered from the readline() wait so the
+        # first raw read(12) starts on a clean frame boundary.
         time.sleep(0.2)
         self._serial.reset_input_buffer()
 
@@ -101,20 +92,12 @@ class SerialDevice(Device):
             "-- is the board freshly flashed/reset and on the right port?"
         )
 
-    def query(self, vector: np.ndarray, max_attempts: int = 3) -> float:
-        # The protocol is strictly synchronous (device sends exactly one 8-byte
-        # reply -- 4-byte score + 4-byte byte-sum checksum -- per 2560-byte
-        # request, in order). The device's checksum lets us verify the request
-        # arrived byte-exact; on a mismatch (or a wrong-length / non-finite
-        # reply) we flush the host read buffer and resend the SAME vector,
-        # which is safe because the device is already idle awaiting its next
-        # request and the score is deterministic.
-        #
-        # This check earned its keep: it caught the ESP-IDF console UART
-        # silently CR<->LF-translating the binary stream (fixed device-side in
-        # main.cc via uart_vfs_dev_port_set_*_line_endings). With that fixed
-        # the checksum should now match on every request; it stays as a guard
-        # against genuine transient bit errors over long runs.
+    def query(self, vector: np.ndarray, max_attempts: int = 3) -> tuple[float, int]:
+        # Strictly synchronous: one 12-byte reply per 2560-byte request. On a
+        # bad exchange (wrong length, checksum mismatch = corrupted request, or
+        # a non-finite score) flush and resend the SAME vector -- safe because
+        # the device is idle awaiting its next request and the score is
+        # deterministic. The checksum caught the Phase 1 UART CR<->LF bug.
         payload = vector.astype("<f4").tobytes()
         expected_checksum = sum(payload) & 0xFFFFFFFF
         last_error = None
@@ -122,53 +105,55 @@ class SerialDevice(Device):
             if attempt > 0:
                 self._serial.reset_input_buffer()
             self._serial.write(payload)
-            response = self._serial.read(8)
-            if len(response) != 8:
-                last_error = f"expected 8 response bytes, got {len(response)}"
+            response = self._serial.read(12)
+            if len(response) != 12:
+                last_error = f"expected 12 response bytes, got {len(response)}"
                 continue
-            score, checksum = struct.unpack("<fI", response)
+            score, anomaly, checksum = struct.unpack("<fII", response)
             if checksum != expected_checksum:
                 last_error = (f"checksum mismatch (device received corrupted "
                               f"request: got {checksum:#010x}, expected "
                               f"{expected_checksum:#010x})")
                 continue
             if not np.isfinite(score):
-                last_error = f"non-finite score decoded ({score!r}) -- likely a bit error"
+                last_error = f"non-finite score decoded ({score!r})"
                 continue
-            return score
+            return score, int(anomaly)
         raise IOError(f"query failed after {max_attempts} attempts: {last_error}")
 
 
 class LoopbackDevice(Device):
-    """Runs the exact same math as firmware/main/inference.cc, but in Python.
+    """Runs the exact same math as firmware/main/inference.cc, in Python.
 
-    Lets you validate this script (and the on-device scoring methodology) with
-    zero hardware. Delegates to Int8Autoencoder.reconstruct(), which quantizes
-    once, invokes, and dequantizes the output -- identical to inference.cc's
-    RunOnFloatVector -- so the MSE computed here (true float input vs
-    dequantized output) matches evaluate_per_id_tflite.py's file_score exactly.
+    Validates the client + methodology with zero hardware. Delegates to
+    Int8Autoencoder.reconstruct() (quantize once, invoke, dequantize output),
+    scoring true-float input vs dequantized output -- identical to inference.cc's
+    RunOnFloatVector -- then applies the same per-vector threshold the device does.
     """
 
-    def __init__(self, tflite_path):
+    def __init__(self, tflite_path, threshold: float):
         self._model = Int8Autoencoder(tflite_path)
+        self._threshold = threshold
 
-    def query(self, vector: np.ndarray) -> float:
+    def query(self, vector: np.ndarray) -> tuple[float, int]:
         reconstruction = self._model.reconstruct(vector[None, :])[0]
-        return float(np.mean((vector - reconstruction) ** 2))
+        score = float(np.mean((vector - reconstruction) ** 2))
+        return score, int(score > self._threshold)
 
 
-def score_files(device: Device, files: Sequence[tuple], progress: bool = False) -> tuple[float, list, list]:
-    """Score (label, vectors) tuples via `device`; return (auc, scores, labels).
+def score_files(device: Device, files: Sequence[tuple], threshold: float,
+                progress: bool = False):
+    """Score (label, vectors) tuples; return (clip_scores, labels, flag_mismatches).
 
-    Pure aggregation logic, independent of how `files` was built -- lets tests
-    exercise this with synthetic data and a fake Device, no dataset required.
-    One UART round-trip per vector is slow (~60-100ms incl. USB-serial/Python
-    overhead), so a real board run can take minutes to hours; `progress=True`
-    prints per-file timing and an ETA so a long run doesn't look hung.
+    clip score = mean of the clip's per-vector scores. flag_mismatches counts
+    per-vector cases where the device's returned anomaly flag != (score >
+    threshold) -- should be 0, an on-device integrity check. Pure aggregation
+    logic (works with any Device), so tests can exercise it with a fake Device.
     """
     import time
 
     scores, labels = [], []
+    flag_mismatches = 0
     start = time.time()
     total_vectors = sum(len(v) for _, v in files)
     vectors_done = 0
@@ -176,8 +161,11 @@ def score_files(device: Device, files: Sequence[tuple], progress: bool = False) 
     for i, (label, vectors) in enumerate(files):
         if len(vectors) == 0:
             continue
-        per_vector = [device.query(v) for v in vectors]
-        scores.append(float(np.mean(per_vector)))  # == file-level MSE, see README
+        clip = [device.query(v) for v in vectors]
+        for s, a in clip:
+            if a != int(s > threshold):
+                flag_mismatches += 1
+        scores.append(float(np.mean([s for s, _ in clip])))
         labels.append(label)
 
         if progress:
@@ -189,20 +177,26 @@ def score_files(device: Device, files: Sequence[tuple], progress: bool = False) 
                   f"vectors {vectors_done}/{total_vectors}  "
                   f"({rate:.1f} vec/s, ~{remaining / 60:.1f} min left)")
 
-    auc = float(roc_auc_score(labels, scores)) if len(set(labels)) == 2 else float("nan")
-    return auc, scores, labels
+    return scores, labels, flag_mismatches
+
+
+def anomaly_metrics(scores, labels, threshold):
+    scores = np.asarray(scores)
+    labels = np.asarray(labels)
+    pred = (scores > threshold).astype(int)
+    tp = int(((pred == 1) & (labels == 1)).sum())
+    fp = int(((pred == 1) & (labels == 0)).sum())
+    fn = int(((pred == 0) & (labels == 1)).sum())
+    tn = int(((pred == 0) & (labels == 0)).sum())
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    return {"precision": round(precision, 4), "recall": round(recall, 4),
+            "f1": round(f1, 4), "tp": tp, "fp": fp, "fn": fn, "tn": tn}
 
 
 def build_normalized_test_files(machine_id: str, limit_files=None, seed: int = 0):
-    """Load + normalize (but do NOT quantize) this machine's held-out test clips.
-
-    The device quantizes internally, so vectors are sent as float32.
-
-    limit_files samples a BALANCED, shuffled mix of normal/anomalous clips (not a
-    raw truncation) so small values still produce a meaningful AUC -- test_files
-    are ordered normal-then-abnormal per ID, so limit_files[:N] alone would grab
-    only normal clips and AUC would be undefined.
-    """
+    """Load + normalize (not quantize) held-out test clips; balanced sample if limited."""
     stats = np.load(config.PER_ID_ARTIFACTS / machine_id / "normalization.npz")
     _, test_files = data.build_dataset()
     id_test_files = group_by_id(test_files).get(machine_id, [])
@@ -224,6 +218,13 @@ def build_normalized_test_files(machine_id: str, limit_files=None, seed: int = 0
     return out
 
 
+def load_threshold(machine_id: str) -> float:
+    path = config.PER_ID_ARTIFACTS / machine_id / "threshold.json"
+    if not path.exists():
+        raise FileNotFoundError(f"{path} missing -- run ml/compute_threshold.py first")
+    return float(json.loads(path.read_text())["threshold"])
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--machine-id", default="id_02")
@@ -232,8 +233,7 @@ def parse_args():
     parser.add_argument("--mock", action="store_true",
                          help="Score in Python instead of over serial (no hardware)")
     parser.add_argument("--limit-files", type=int, default=None,
-                         help="Replay a balanced sample of ~this many clips "
-                              "(half normal, half anomalous) instead of the full set")
+                         help="Balanced sample of ~this many clips instead of the full set")
     return parser.parse_args()
 
 
@@ -243,24 +243,36 @@ def main():
     tflite_path = model_dir / "model_int8.tflite"
     if not tflite_path.exists():
         raise FileNotFoundError(f"{tflite_path} missing -- run export_per_id.py first")
+    threshold = load_threshold(args.machine_id)
 
     files = build_normalized_test_files(args.machine_id, args.limit_files)
-    print(f"[data] {args.machine_id}: {len(files)} held-out test clips")
+    print(f"[data] {args.machine_id}: {len(files)} held-out test clips  "
+          f"threshold={threshold:.6f}")
 
     if args.mock:
-        device: Device = LoopbackDevice(tflite_path)
+        device: Device = LoopbackDevice(tflite_path, threshold)
         print("[device] mock mode (Python loopback, no hardware)")
     else:
         if not args.port:
             raise SystemExit("--port is required unless --mock is passed")
         device = SerialDevice(args.port, args.baud)
 
-    auc, scores, labels = score_files(device, files, progress=not args.mock)
-    print(f"\n[result] {args.machine_id}: on-device AUC = {auc:.4f}  "
-          f"({len(scores)} clips)")
+    scores, labels, flag_mismatches = score_files(
+        device, files, threshold, progress=not args.mock)
+    auc = float(roc_auc_score(labels, scores)) if len(set(labels)) == 2 else float("nan")
+    m = anomaly_metrics(scores, labels, threshold)
+
+    print(f"\n[result] {args.machine_id}: on-device AUC = {auc:.4f}  ({len(scores)} clips)")
+    print(f"[result] anomaly detection @ threshold {threshold:.4f}: "
+          f"precision={m['precision']} recall={m['recall']} F1={m['f1']}  "
+          f"(TP={m['tp']} FP={m['fp']} FN={m['fn']} TN={m['tn']})")
+    print(f"[check] per-vector device-flag mismatches vs (score>threshold): "
+          f"{flag_mismatches} (should be 0)")
 
     result = {"machine_id": args.machine_id, "on_device_auc": round(auc, 4),
-              "clips": len(scores), "mock": args.mock}
+              "threshold": threshold, "anomaly": m,
+              "flag_mismatches": flag_mismatches, "clips": len(scores),
+              "mock": args.mock}
     out_path = model_dir / "metrics_on_device.json"
     out_path.write_text(json.dumps(result, indent=2))
     print(f"[saved] {out_path}")
