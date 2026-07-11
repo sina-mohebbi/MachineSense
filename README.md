@@ -1,71 +1,152 @@
-# MachineSense — On-Device Industrial Anomaly Detection
+# MachineSense - ESP32 On-Device Anomaly Detection
 
-An **ESP32** that listens to a machine, runs a quantized **autoencoder** on-device, and
-flags *"this machine sounds wrong"* in real time — trained entirely on a public dataset,
-shipped with the CI/CD, tests, and OTA that a production embedded product needs.
+MachineSense is an embedded ML project for industrial sound anomaly detection. It
+trains an autoencoder on healthy machine audio, exports the model to int8
+TensorFlow Lite, and runs the anomaly detector on a real ESP32 with TensorFlow
+Lite for Microcontrollers.
 
-> Successor to [library-desk-sense](https://github.com/mohebbixsina-debug/library-desk-sense):
-> that project proved the full IoT pipeline (sensing → protocols → cloud → dashboards).
-> **MachineSense pushes the intelligence to the edge** and ships it like a professional.
+Current status: **Phase 1 and Phase 2 are working.** The ML pipeline trains on a
+laptop, exports deployable models, and the ESP32 firmware has been built,
+flashed, and validated in replay mode on real hardware.
 
-## What it does
+## What Works Now
 
-Train an autoencoder on the sound of a **healthy** machine (public **MIMII** dataset).
-Anything it cannot reconstruct well = an anomaly. No failure data required — which is how
-real predictive-maintenance works. The model is quantized to **int8** and runs on a plain
-**ESP32 DevKit** via **TensorFlow Lite for Microcontrollers**.
+- Laptop ML pipeline for the MIMII fan dataset.
+- Leakage-safe train/test split by machine ID and clip.
+- Pooled autoencoder baseline and per-machine-ID autoencoders.
+- Full int8 TFLite export for ESP32 deployment.
+- Generated C/C++ model data and anomaly thresholds for firmware.
+- ESP32 TensorFlow Lite Micro inference.
+- FreeRTOS replay pipeline: UART input, inference, scoring, anomaly flag, LED.
+- Host replay client that streams held-out feature vectors to the board.
+- Dataset-free tests for the ML smoke path and firmware replay tooling.
+- Basic GitHub Actions CI for Python lint and tests.
+
+## Latest Results
+
+| Path | Result |
+|---|---:|
+| Pooled float model AUC | 0.7130 |
+| Pooled int8 model AUC | 0.6947 |
+| Per-ID float macro AUC | 0.7677 approx |
+| Per-ID int8 macro AUC | 0.7677 |
+| Best per-ID int8 AUC (`id_06`) | 0.9256 |
+| Deployed ESP32 target (`id_02`) int8 AUC | 0.8578 host-side |
+| ESP32 replay validation | Built, flashed, verified |
+| Firmware binary size | 501,616 bytes |
+
+The firmware README documents real ESP32 WROOM validation. On-device replay for
+`id_02` matched the host path closely, with no checksum or anomaly-flag
+mismatches in the documented runs. A short 20-clip hardware spot check is also
+saved in `ml/artifacts/per_id/id_02/metrics_on_device.json`.
 
 ## Architecture
 
+```text
+Laptop training
+  MIMII WAV files
+    -> log-mel features
+    -> autoencoder training
+    -> int8 TFLite export
+    -> C/C++ model data + threshold
+
+ESP32 replay mode
+  PC replay_client.py
+    -> UART feature vectors
+    -> ESP32 FreeRTOS rx task
+    -> TFLite Micro inference task
+    -> reconstruction error + anomaly threshold
+    -> UART result + LED alert
+
+Next cloud loop
+  ESP32 anomaly event
+    -> MQTT / EMQX
+    -> TimescaleDB
+    -> Grafana dashboard + alerts
 ```
-                          EDGE (ESP32 DevKit)
-  log-mel vectors ──► TFLite-Micro autoencoder ──► reconstruction MSE ──► anomaly score
-       ▲                                                                      │
-       │ (replay: fed over USB/UART   |   live stretch: I2S mic + esp-dsp)    │ MQTT/TLS
-       │                                                                      ▼
-                                CLOUD (self-hosted, Docker)
-   ESP32 ──► EMQX (broker + rule engine + data bridge) ──► TimescaleDB ──► Grafana
-              │                                            (SQL time-series)  (+ alerts)
-              └─ retained topic = anomaly-threshold config push
-   OTA: ESP-IDF signed OTA over HTTPS, triggered by an MQTT topic
-```
 
-## Zero-hardware by design
+## Repo Layout
 
-The primary demo path is **replay mode**: held-out MIMII test clips (normal **and**
-anomalous) are pre-processed to log-mel vectors on a PC and streamed to the ESP32 over the
-USB cable. The device runs the **real quantized model** and computes **AUC on-device**.
-Total hardware cost: **$0**. (Optional live stretch: a ~$4 I2S mic.)
-
-## Repo layout
-
-| Folder | Contents |
+| Folder | Purpose |
 |---|---|
-| `ml/` | **Phase 0** — train the autoencoder, evaluate AUC, export an int8 C header |
-| `firmware/` | Phase 1–2 — ESP-IDF + FreeRTOS on-device inference |
-| `cloud/` | Phase 3 — EMQX + TimescaleDB + Grafana (`docker-compose`) |
-| `evaluation/` | Phase 5 — the benchmark study (int8-vs-float, edge-vs-cloud, …) |
-| `docs/` | architecture notes, results table, wiring |
+| `ml/` | Training, evaluation, quantization, model export, thresholds |
+| `firmware/` | ESP-IDF firmware, TFLite Micro inference, UART replay |
+| `cloud/` | Phase 3 scaffold for EMQX, TimescaleDB, and Grafana |
+| `evaluation/` | Planned benchmark/report package |
+| `docs/` | Architecture notes and supporting documentation |
 
 ## Roadmap
 
-- [x] **Phase 0** — Python: MIMII → log-mel → autoencoder → AUC → int8 export *(this scaffold)*
-- [ ] **Phase 1** — TFLite-Micro on ESP32 in replay mode; reproduce AUC on-device
-- [ ] **Phase 2** — FreeRTOS pipeline, threshold, serial/OLED readout
-- [ ] **Phase 3** — EMQX → TimescaleDB → Grafana + alerts
-- [ ] **Phase 4** — GitHub Actions CI, native unit tests, Docker, signed OTA
-- [ ] **Phase 5** — evaluation study, README results, demo GIF
+- [x] **Phase 0 - ML baseline:** MIMII preprocessing, autoencoder training, AUC evaluation.
+- [x] **Phase 1 - ESP32 replay inference:** int8 TFLite Micro model running on the board.
+- [x] **Phase 2 - Firmware pipeline:** FreeRTOS tasks, thresholding, LED/serial result path.
+- [ ] **Phase 3 - Connected telemetry:** publish anomaly events over MQTT to EMQX.
+- [ ] **Phase 4 - Production hardening:** firmware CI, OTA, TLS/auth, device configuration.
+- [ ] **Phase 5 - Final evaluation:** repeatable benchmark package, dashboard screenshots, demo media.
 
-## Quick start (Phase 0)
+## Quick Start
 
-```bash
+### Train and export the model
+
+```powershell
 cd ml
 pip install -r requirements.txt
-# download a MIMII machine type (e.g. fan) and unzip into ml/data/fan/
-#   ml/data/fan/id_00/normal/*.wav
-#   ml/data/fan/id_00/abnormal/*.wav
-python train.py            # trains, prints AUC, saves artifacts/model.keras
-python export_tflite.py    # int8 quantize -> artifacts/model_int8.tflite + model_data.cc
+python train.py
+python export_tflite.py
 ```
 
-See [`ml/README.md`](ml/README.md) for details and where to get the dataset.
+For the per-machine-ID deployment path:
+
+```powershell
+cd ml
+python train_per_id.py
+python export_per_id.py
+python compute_threshold.py --machine-id id_02
+```
+
+### Build and test the ESP32 firmware
+
+```powershell
+cd firmware
+idf.py set-target esp32
+idf.py -p COM7 build flash
+
+cd tools
+pip install -r requirements.txt
+python replay_client.py --port COM7 --machine-id id_02
+```
+
+No board attached? Use the mock path to test the replay aggregation logic:
+
+```powershell
+cd firmware/tools
+python replay_client.py --mock --machine-id id_02
+```
+
+### Run tests
+
+```powershell
+.\ml\.venv\Scripts\python.exe -m pytest -q ml firmware/tools/tests
+```
+
+Current local result: **15 passed**.
+
+## Known Gaps
+
+- Live microphone capture is not implemented yet; current hardware validation uses
+  replayed feature vectors over UART.
+- The cloud stack is scaffolded, but EMQX rules, TimescaleDB schema, Grafana
+  provisioning, TLS, and MQTT auth still need to be completed.
+- Firmware build CI is planned but not active yet.
+- OTA and secure device-management flows are not implemented yet.
+- Final evaluation artifacts, screenshots, and demo media are still pending.
+
+## Next Step
+
+The next small milestone is to send one anomaly event into MQTT:
+
+```text
+ESP32 or replay bridge -> EMQX topic -> visible message in broker dashboard
+```
+
+After that, the project can connect the event to TimescaleDB and Grafana.
