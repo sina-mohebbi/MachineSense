@@ -3,11 +3,11 @@
 All audio/feature parameters follow the DCASE 2020 Task 2 baseline so results are
 comparable to published numbers on the MIMII dataset.
 """
+import hashlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent          # ml/
 ARTIFACTS = ROOT / "artifacts"
-FEATURE_CACHE = ARTIFACTS / "feature_cache"
 
 # --- Dataset -----------------------------------------------------------------
 # Unzip one MIMII machine type here, e.g. for "fan":
@@ -26,6 +26,12 @@ N_MELS = 128
 POWER = 2.0
 FRAMES = 5                                       # context frames concatenated
 FEATURE_DIM = N_MELS * FRAMES                    # = 640
+
+# The feature cache is namespaced by a signature of the parameters above, so changing
+# any of them writes to a fresh directory instead of serving stale cached vectors.
+_FEATURE_KEY = f"sr{SR}_nfft{N_FFT}_hop{HOP}_mel{N_MELS}_pow{POWER}_frames{FRAMES}"
+FEATURE_SIG = hashlib.md5(_FEATURE_KEY.encode()).hexdigest()[:8]
+FEATURE_CACHE = ARTIFACTS / "feature_cache" / FEATURE_SIG
 
 # --- Autoencoder -------------------------------------------------------------
 HIDDEN = 128
@@ -46,3 +52,9 @@ HISTORY = ARTIFACTS / "history.json"
 TFLITE_INT8 = ARTIFACTS / "model_int8.tflite"
 C_HEADER = ARTIFACTS / "model_data.cc"           # copy into firmware/main/ for Phase 1
 C_VAR_NAME = "g_model_data"
+
+# --- Per-machine-ID models (see train_per_id.py) ------------------------------
+# One autoencoder per machine ID instead of a single pooled model -- pooling forces
+# a compromise across machines with different baseline sounds (observed: id_00
+# AUC 0.576 pooled vs 0.70-0.80 for the others).
+PER_ID_ARTIFACTS = ARTIFACTS / "per_id"

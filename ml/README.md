@@ -62,6 +62,37 @@ Writes `artifacts/model_int8.tflite` and `artifacts/model_data.cc` (+ `.h`). In 
 these get copied into `firmware/main/` and compiled into the ESP32 image. The evaluation
 command writes `artifacts/metrics_int8.json` so quantization can be compared with float32.
 
+## 5. (Optional but recommended) Per-machine-ID models
+
+The pooled model above trains one autoencoder shared across all machine IDs. Machines
+of the same type still sound different from unit to unit, so pooling forces a
+compromise: on the fan dataset, pooled overall AUC was 0.713, but **id_00 alone
+scored only 0.576** (barely above random) while id_02/04/06 scored 0.70-0.80.
+
+Training one autoencoder **per machine ID** removes that compromise:
+
+```bash
+python train_per_id.py
+python export_per_id.py
+python evaluate_per_id_tflite.py
+```
+
+Uses the exact same train/validation/test split as `train.py`. The headline metric is
+the **macro-average AUC** (the unweighted mean of each ID's own AUC) — not a pooled
+ranking across models. Each per-ID autoencoder is trained independently, so their
+reconstruction-error scales differ; ranking raw scores from different models against
+each other is not meaningful (a naive pooled-ranking AUC is also reported, but only
+for reference — it can look worse even when every individual model improved, purely
+from scale mismatch). Macro-average is also the metric that matches real deployment:
+one physical ESP32 monitors one physical machine, so it only ever ranks its own
+scores against its own threshold, never against another machine's.
+
+Artifacts land under `artifacts/per_id/<id>/` (own `model.keras`,
+`normalization.npz`, `model_int8.tflite`, `model_data.cc` with variable name
+`g_model_data_<id>`), plus a summary at `artifacts/per_id/metrics.json` (and
+`metrics_int8.json` after export). A real deployment only ever needs the
+`.tflite`/`.cc` for its own machine's ID.
+
 ## Files
 
 | File | Role |
@@ -69,9 +100,12 @@ command writes `artifacts/metrics_int8.json` so quantization can be compared wit
 | `config.py` | all audio/feature/model/export parameters (DCASE baseline) |
 | `data.py` | MIMII loading + log-mel context-vector extraction |
 | `model.py` | the autoencoder topology |
-| `train.py` | train + AUC evaluation + save artifacts |
-| `export_tflite.py` | int8 quantization + C-header emit |
-| `evaluate_tflite.py` | host int8 AUC evaluation before device deployment |
+| `train.py` | train pooled model + AUC evaluation + save artifacts |
+| `export_tflite.py` | int8 quantization + C-header emit (pooled model) |
+| `evaluate_tflite.py` | host int8 AUC evaluation before device deployment (pooled) |
+| `train_per_id.py` | train one autoencoder per machine ID |
+| `export_per_id.py` | int8 quantization + C-header emit, per machine ID |
+| `evaluate_per_id_tflite.py` | host int8 AUC evaluation, per machine ID |
 | `tests/test_smoke.py` | dataset-free tests (also run in CI) |
 
 ## How the anomaly score works

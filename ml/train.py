@@ -134,11 +134,19 @@ def main() -> None:
         x_train, x_train,
         epochs=args.epochs, batch_size=config.BATCH,
         validation_data=(x_validation, x_validation), shuffle=True, verbose=2,
-        callbacks=[tf.keras.callbacks.EarlyStopping(
-            monitor="val_loss",
-            patience=args.patience,
-            restore_best_weights=True,
-        )],
+        callbacks=[
+            tf.keras.callbacks.EarlyStopping(
+                monitor="val_loss",
+                patience=args.patience,
+                restore_best_weights=True,
+            ),
+            tf.keras.callbacks.ReduceLROnPlateau(
+                monitor="val_loss",
+                factor=0.5,
+                patience=max(2, args.patience // 2),
+                min_lr=1e-5,
+            ),
+        ],
     )
 
     # --- evaluate AUC --------------------------------------------------------
