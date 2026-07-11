@@ -12,8 +12,11 @@ ml/artifacts/
 *.keras
 *.tflite
 
-# Generated firmware model (regenerated from ml/)
+# Generated firmware model (regenerated from ml/, see firmware/README.md)
 firmware/main/model_data.cc
+firmware/main/model_data.h
+firmware/managed_components/
+firmware/dependencies.lock
 
 # ESP-IDF build
 firmware/build/
