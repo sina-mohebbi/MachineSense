@@ -27,12 +27,10 @@ static const char* TAG = "inference";
 constexpr int kNumOps = 2;
 tflite::MicroMutableOpResolver<kNumOps> resolver;
 
-// Working memory for TFLM's tensors. A real run measured only ~15.8 KB used
-// out of this 60 KB, so there's plenty of headroom; Phase 2 can shrink this
-// once the arena size is final. If Init() logs an arena-too-small error,
-// raise this and re-flash -- interpreter->arena_used_bytes() (logged on
-// success) tells you the true minimum.
-constexpr int kTensorArenaSize = 60 * 1024;
+// Working memory for TFLM's tensors. A real run measured 15756 bytes used, so
+// 24 KB gives comfortable headroom (weights live in flash, not here). Init()
+// logs arena_used_bytes() on success; raise this if it ever reports too small.
+constexpr int kTensorArenaSize = 24 * 1024;
 alignas(16) uint8_t tensor_arena[kTensorArenaSize];
 
 const tflite::Model* model = nullptr;

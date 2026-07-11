@@ -12,9 +12,10 @@ ml/artifacts/
 *.keras
 *.tflite
 
-# Generated firmware model (regenerated from ml/, see firmware/README.md)
+# Generated firmware model + threshold (regenerated from ml/, see firmware/README.md)
 firmware/main/model_data.cc
 firmware/main/model_data.h
+firmware/main/threshold.h
 firmware/managed_components/
 firmware/dependencies.lock
 
