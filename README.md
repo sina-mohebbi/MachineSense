@@ -8,8 +8,6 @@ Lite for Microcontrollers.
 Current status: **final ESP32 model-evaluation scope is complete.** The ML
 pipeline trains on a laptop, exports deployable int8 models, and the ESP32
 firmware has been built, flashed, and validated in replay mode on real hardware.
-Cloud monitoring is intentionally left out of the final scope and treated as
-optional future work.
 
 ## What Works Now
 
@@ -106,12 +104,6 @@ ESP32 replay mode
     -> TFLite Micro inference task
     -> reconstruction error + anomaly threshold
     -> UART result + LED alert
-
-Optional future cloud loop
-  ESP32 anomaly event
-    -> MQTT / EMQX
-    -> time-series storage
-    -> dashboard / alerts
 ```
 
 ## Repo Layout
@@ -120,7 +112,6 @@ Optional future cloud loop
 |---|---|
 | `ml/` | Training, evaluation, quantization, model export, thresholds |
 | `firmware/` | ESP-IDF firmware, TFLite Micro inference, UART replay |
-| `cloud/` | Optional future monitoring scaffold; not required for final scope |
 | `evaluation/` | Planned benchmark/report package |
 | `docs/` | Architecture notes and supporting documentation |
 
@@ -130,8 +121,7 @@ Optional future cloud loop
 - [x] **Phase 1 - ESP32 replay inference:** int8 TFLite Micro model running on the board.
 - [x] **Phase 2 - Firmware pipeline:** FreeRTOS tasks, thresholding, LED/serial result path.
 - [x] **Phase 3 - Final evaluation:** compare laptop, int8, and ESP32 replay behavior.
-- [ ] **Optional future work - Connected telemetry:** publish anomaly events over MQTT.
-- [ ] **Optional future work - Production hardening:** firmware CI, OTA, TLS/auth, device configuration.
+- [ ] **Optional future work - Production hardening:** firmware CI, OTA, device configuration.
 
 ## Quick Start
 
@@ -184,9 +174,7 @@ Current local result: **15 passed**.
 
 - Live microphone capture is not implemented yet; current hardware validation uses
   replayed feature vectors over UART.
-- Cloud monitoring is not part of the final project scope. The `cloud/` folder is
-  kept only as an optional extension path.
-- Firmware build CI, OTA, TLS/auth, and secure device-management flows are not
+- Firmware build CI, OTA, and secure device-management flows are not
   implemented because the project focus is on model-on-chip evaluation.
 - `id_00` remains a difficult machine ID: reconstruction-error scores for normal
   and abnormal clips overlap strongly. Follow-up experiments improved it only
@@ -199,6 +187,3 @@ The project is ready for final reporting/demo at the current scope:
 ```text
 laptop training -> int8 export -> ESP32 replay inference -> laptop/board comparison
 ```
-
-Optional future work can add MQTT/cloud monitoring, but it is not required for
-the final MachineSense result.

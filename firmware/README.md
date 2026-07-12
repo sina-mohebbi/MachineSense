@@ -107,9 +107,8 @@ device math in Python (validates the full pipeline, reproduces AUC 0.858 / F1 0.
 | `tools/diagnose_mismatch.py` | compare mock vs real per-vector (bring-up aid) |
 | `tools/tests/` | dataset-free, hardware-free tests |
 
-## Next: Phase 3
+## Possible extensions
 
-Stream anomaly scores over MQTT into the EMQX + TimescaleDB + Grafana stack already
-scaffolded in [`../cloud/`](../cloud/). Stretch: on-device log-mel via `esp-dsp` + an
-I2S mic for a fully live (sensor-driven) demo. See
-[`../docs/architecture.md`](../docs/architecture.md).
+On-device log-mel via `esp-dsp` + an I2S mic would turn replay mode into a fully live
+(sensor-driven) demo — the inference/threshold/LED path already in place would be reused
+unchanged. See [`../docs/architecture.md`](../docs/architecture.md).

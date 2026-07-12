@@ -7,7 +7,7 @@ HTTP-vs-CoAP benchmark in library-desk-sense). Planned experiments:
 |---|---|---|
 | **int8 vs float32** | What does quantization cost? | AUC, model size, tensor-arena RAM, latency |
 | **on-device vs host AUC** | Does the ESP32 match the PC? | AUC delta |
-| **edge vs cloud** | Why compute at the edge? | bytes-on-wire (score vs raw audio), latency |
+| **score vs raw-audio uplink** | Why compute at the edge? | bytes-on-wire (send a score vs stream raw audio) |
 | **autoencoder vs classifier** | Unsupervised vs supervised trade-off | AUC, footprint |
 
 Outputs: a results table for the top-level README and plots (`anomaly-score`, ROC).

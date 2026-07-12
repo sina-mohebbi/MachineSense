@@ -4,15 +4,12 @@
 
 ```
                           EDGE (ESP32 DevKit)
-  log-mel vectors ──► TFLite-Micro autoencoder ──► reconstruction MSE ──► anomaly score
-       ▲                                                                      │
-       │ replay: USB/UART   |   live stretch: I2S mic + esp-dsp               │ MQTT/TLS
-       ▼                                                                      ▼
-                                CLOUD (self-hosted, Docker)
-   ESP32 ──► EMQX (broker + rule engine + data bridge) ──► TimescaleDB ──► Grafana
-              │                                            (SQL time-series)  (+ alerts)
-              └─ retained topic = anomaly-threshold config push
-   OTA: ESP-IDF signed OTA over HTTPS, triggered by an MQTT topic
+  log-mel vectors ──► TFLite-Micro autoencoder ──► reconstruction MSE ──► score
+       ▲                                                                     │
+       │ replay: host streams held-out MIMII vectors over USB/UART           │
+       │ (live stretch: I2S mic + esp-dsp)                score > threshold ──┤
+       │                                                  ─► anomaly flag + LED
+       └──────────── 12-byte reply (score, anomaly flag, checksum) ◄─────────┘
 ```
 
 ## Design decisions
@@ -20,11 +17,12 @@
 - **Unsupervised autoencoder**, not a classifier — trained on *normal* sound only, so no
   labeled failures are needed (realistic for predictive maintenance).
 - **Sensor-free by default** via replay mode — the ESP32 runs the real quantized model on
-  pre-processed MIMII vectors, so the whole project costs $0 and needs no hardware.
-- **EMQX rule engine + data bridge** replaces a custom proxy — telemetry lands in
-  TimescaleDB without glue code.
-- **int8 full-integer quantization** — required for TFLite-Micro; the cost is measured in
-  the evaluation study.
+  pre-processed MIMII vectors, so validation needs no extra hardware.
+- **Per-machine-ID models** — one autoencoder per unit; a device ships only its own model.
+- **int8 full-integer quantization** — required for TFLite-Micro; measured lossless vs the
+  float model (per-ID macro AUC 0.768 either way).
+- **FreeRTOS task pipeline** (rx → infer → tx) with a byte-sum checksum guarding the binary
+  UART protocol (it caught the console's CR↔LF translation during bring-up).
 
 ## What this project adds over library-desk-sense
 
@@ -32,18 +30,18 @@
 |---|---|---|
 | Intelligence | server-side analytics | **on-device** (edge AI) |
 | Signal processing | low-rate sensing | **log-mel / DSP features** |
-| Broker | Mosquitto + Python proxy | **EMQX** (native rule engine) |
-| Storage | InfluxDB | **TimescaleDB (SQL)** |
-| CI/CD | none | **GitHub Actions + tests** |
-| OTA | none | **signed OTA** |
+| Concurrency | basic tasks | **FreeRTOS rx→infer→tx pipeline** |
+| Quantization | none | **int8 TFLite-Micro (lossless vs float)** |
+| Testing / CI | none | **dataset-free tests + GitHub Actions** |
 
-## Results (fill in after each phase)
+## Results
 
 | Metric | Value |
 |---|---|
-| Overall AUC (float32) | _tbd_ |
-| Overall AUC (int8, on-device) | _tbd_ |
-| Model size (int8) | _tbd_ KiB |
-| Tensor-arena RAM | _tbd_ KiB |
-| Inference latency (ESP32) | _tbd_ ms |
-| Bytes/clip: edge score vs raw audio | _tbd_ |
+| Per-ID macro AUC (float32) | 0.768 |
+| Per-ID macro AUC (int8) | 0.768 |
+| Deployed `id_02` AUC (int8, host) | 0.858 |
+| `id_02` anomaly F1 @ threshold | 0.81 (precision 0.85 / recall 0.76) |
+| int8 model size (`id_02`) | ~311 KiB |
+| Tensor-arena RAM used | ~15.8 KiB (24 KiB allocated) |
+| On-device vs host agreement | per-vector scores within ~0.001; 0 flag mismatches |
