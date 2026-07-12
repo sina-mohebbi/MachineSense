@@ -1,71 +1,204 @@
-# MachineSense — On-Device Industrial Anomaly Detection
+# MachineSense - ESP32 On-Device Anomaly Detection
 
-An **ESP32** that listens to a machine, runs a quantized **autoencoder** on-device, and
-flags *"this machine sounds wrong"* in real time — trained entirely on a public dataset,
-shipped with the CI/CD, tests, and OTA that a production embedded product needs.
+MachineSense is an embedded ML project for industrial sound anomaly detection. It
+trains an autoencoder on healthy machine audio, exports the model to int8
+TensorFlow Lite, and runs the anomaly detector on a real ESP32 with TensorFlow
+Lite for Microcontrollers.
 
-> Successor to [library-desk-sense](https://github.com/mohebbixsina-debug/library-desk-sense):
-> that project proved the full IoT pipeline (sensing → protocols → cloud → dashboards).
-> **MachineSense pushes the intelligence to the edge** and ships it like a professional.
+Current status: **final ESP32 model-evaluation scope is complete.** The ML
+pipeline trains on a laptop, exports deployable int8 models, and the ESP32
+firmware has been built, flashed, and validated in replay mode on real hardware.
+Cloud monitoring is intentionally left out of the final scope and treated as
+optional future work.
 
-## What it does
+## What Works Now
 
-Train an autoencoder on the sound of a **healthy** machine (public **MIMII** dataset).
-Anything it cannot reconstruct well = an anomaly. No failure data required — which is how
-real predictive-maintenance works. The model is quantized to **int8** and runs on a plain
-**ESP32 DevKit** via **TensorFlow Lite for Microcontrollers**.
+- Laptop ML pipeline for the MIMII fan dataset.
+- Leakage-safe train/test split by machine ID and clip.
+- Pooled autoencoder baseline and per-machine-ID autoencoders.
+- Full int8 TFLite export for ESP32 deployment.
+- Generated C/C++ model data and anomaly thresholds for firmware.
+- ESP32 TensorFlow Lite Micro inference.
+- FreeRTOS replay pipeline: UART input, inference, scoring, anomaly flag, LED.
+- Host replay client that streams held-out feature vectors to the board.
+- Dataset-free tests for the ML smoke path and firmware replay tooling.
+- Basic GitHub Actions CI for Python lint and tests.
+- Follow-up experiments for the difficult `id_00` case, including alternate
+  clip scoring, longer context windows, and a small Conv2D autoencoder.
+
+## Latest Results
+
+| Path | Result |
+|---|---:|
+| Pooled float model AUC | 0.7130 |
+| Pooled int8 model AUC | 0.6947 |
+| Per-ID float macro AUC | 0.7677 |
+| Per-ID int8 macro AUC | 0.7677 |
+| Best per-ID int8 AUC (`id_06`) | 0.9256 |
+| Deployed ESP32 target (`id_02`) int8 AUC | 0.8578 host-side |
+| ESP32 replay validation (`id_02`) | Built, flashed, verified |
+| Firmware binary size | 501,616 bytes |
+
+The firmware README documents real ESP32 WROOM validation. On-device replay for
+`id_02` matched the host path closely, with no checksum or anomaly-flag
+mismatches in the documented runs. A short 20-clip hardware spot check is also
+saved in `ml/artifacts/per_id/id_02/metrics_on_device.json`.
+
+Final evaluation takeaway: the laptop and ESP32 paths agree closely for the
+deployed `id_02` model, and quantization did not meaningfully reduce the per-ID
+macro AUC. The strongest results are on `id_02` and `id_06`; `id_00` is kept as a
+documented hard case rather than hidden.
+
+### `id_00` follow-up experiments
+
+| Experiment | `id_00` AUC | Outcome |
+|---|---:|---|
+| Dense per-ID autoencoder, `FRAMES=5` | 0.5626 | Current baseline |
+| Dense per-ID autoencoder, `FRAMES=10` | 0.5931 int8 | Small improvement, larger input/model |
+| Conv2D autoencoder, `FRAMES=5` | 0.5392 | Worse than baseline |
+| Simple Z-score detector | 0.5453 | Worse than baseline |
+
+The `id_00` diagnostics showed heavy overlap between normal and abnormal
+reconstruction-error scores, so the weak result appears to be a data/model
+separability limitation for this machine ID rather than an ESP32 deployment bug.
+
+### How `id_00` should be reported
+
+`id_00` should be presented as a negative/limitation case in the final report,
+not as a broken deployment. The same training, export, quantization, and replay
+pipeline works well for stronger IDs such as `id_02` and `id_06`, while `id_00`
+remains close to random ranking under reconstruction-error scoring.
+
+The best interpretation is:
+
+- The ESP32/TFLite-Micro implementation is not the source of the weak `id_00`
+  result, because the laptop and board paths agree closely on the deployed
+  `id_02` model.
+- The dense autoencoder baseline for `id_00` reaches only AUC 0.5626, and
+  alternative scoring strategies did not solve the issue.
+- Increasing the context window to `FRAMES=10` improved `id_00` only modestly to
+  0.5931 int8, while increasing model/input size.
+- A small Conv2D autoencoder and simple Z-score detector both performed worse
+  than the dense baseline.
+- Score diagnostics show that `id_00` normal and abnormal clips have very similar
+  reconstruction-error distributions, meaning this machine ID is weakly
+  separable with the current log-mel autoencoder approach.
+
+For the final project, the correct conclusion is therefore: MachineSense
+successfully demonstrates laptop-to-ESP32 model deployment and on-device anomaly
+scoring, while also identifying `id_00` as a documented limitation of the chosen
+unsupervised reconstruction method.
 
 ## Architecture
 
+```text
+Laptop training
+  MIMII WAV files
+    -> log-mel features
+    -> autoencoder training
+    -> int8 TFLite export
+    -> C/C++ model data + threshold
+
+ESP32 replay mode
+  PC replay_client.py
+    -> UART feature vectors
+    -> ESP32 FreeRTOS rx task
+    -> TFLite Micro inference task
+    -> reconstruction error + anomaly threshold
+    -> UART result + LED alert
+
+Optional future cloud loop
+  ESP32 anomaly event
+    -> MQTT / EMQX
+    -> time-series storage
+    -> dashboard / alerts
 ```
-                          EDGE (ESP32 DevKit)
-  log-mel vectors ──► TFLite-Micro autoencoder ──► reconstruction MSE ──► anomaly score
-       ▲                                                                      │
-       │ (replay: fed over USB/UART   |   live stretch: I2S mic + esp-dsp)    │ MQTT/TLS
-       │                                                                      ▼
-                                CLOUD (self-hosted, Docker)
-   ESP32 ──► EMQX (broker + rule engine + data bridge) ──► TimescaleDB ──► Grafana
-              │                                            (SQL time-series)  (+ alerts)
-              └─ retained topic = anomaly-threshold config push
-   OTA: ESP-IDF signed OTA over HTTPS, triggered by an MQTT topic
-```
 
-## Zero-hardware by design
+## Repo Layout
 
-The primary demo path is **replay mode**: held-out MIMII test clips (normal **and**
-anomalous) are pre-processed to log-mel vectors on a PC and streamed to the ESP32 over the
-USB cable. The device runs the **real quantized model** and computes **AUC on-device**.
-Total hardware cost: **$0**. (Optional live stretch: a ~$4 I2S mic.)
-
-## Repo layout
-
-| Folder | Contents |
+| Folder | Purpose |
 |---|---|
-| `ml/` | **Phase 0** — train the autoencoder, evaluate AUC, export an int8 C header |
-| `firmware/` | Phase 1–2 — ESP-IDF + FreeRTOS on-device inference |
-| `cloud/` | Phase 3 — EMQX + TimescaleDB + Grafana (`docker-compose`) |
-| `evaluation/` | Phase 5 — the benchmark study (int8-vs-float, edge-vs-cloud, …) |
-| `docs/` | architecture notes, results table, wiring |
+| `ml/` | Training, evaluation, quantization, model export, thresholds |
+| `firmware/` | ESP-IDF firmware, TFLite Micro inference, UART replay |
+| `cloud/` | Optional future monitoring scaffold; not required for final scope |
+| `evaluation/` | Planned benchmark/report package |
+| `docs/` | Architecture notes and supporting documentation |
 
 ## Roadmap
 
-- [x] **Phase 0** — Python: MIMII → log-mel → autoencoder → AUC → int8 export *(this scaffold)*
-- [ ] **Phase 1** — TFLite-Micro on ESP32 in replay mode; reproduce AUC on-device
-- [ ] **Phase 2** — FreeRTOS pipeline, threshold, serial/OLED readout
-- [ ] **Phase 3** — EMQX → TimescaleDB → Grafana + alerts
-- [ ] **Phase 4** — GitHub Actions CI, native unit tests, Docker, signed OTA
-- [ ] **Phase 5** — evaluation study, README results, demo GIF
+- [x] **Phase 0 - ML baseline:** MIMII preprocessing, autoencoder training, AUC evaluation.
+- [x] **Phase 1 - ESP32 replay inference:** int8 TFLite Micro model running on the board.
+- [x] **Phase 2 - Firmware pipeline:** FreeRTOS tasks, thresholding, LED/serial result path.
+- [x] **Phase 3 - Final evaluation:** compare laptop, int8, and ESP32 replay behavior.
+- [ ] **Optional future work - Connected telemetry:** publish anomaly events over MQTT.
+- [ ] **Optional future work - Production hardening:** firmware CI, OTA, TLS/auth, device configuration.
 
-## Quick start (Phase 0)
+## Quick Start
 
-```bash
+### Train and export the model
+
+```powershell
 cd ml
 pip install -r requirements.txt
-# download a MIMII machine type (e.g. fan) and unzip into ml/data/fan/
-#   ml/data/fan/id_00/normal/*.wav
-#   ml/data/fan/id_00/abnormal/*.wav
-python train.py            # trains, prints AUC, saves artifacts/model.keras
-python export_tflite.py    # int8 quantize -> artifacts/model_int8.tflite + model_data.cc
+python train.py
+python export_tflite.py
 ```
 
-See [`ml/README.md`](ml/README.md) for details and where to get the dataset.
+For the per-machine-ID deployment path:
+
+```powershell
+cd ml
+python train_per_id.py
+python export_per_id.py
+python compute_threshold.py --machine-id id_02
+```
+
+### Build and test the ESP32 firmware
+
+```powershell
+cd firmware
+idf.py set-target esp32
+idf.py -p COM7 build flash
+
+cd tools
+pip install -r requirements.txt
+python replay_client.py --port COM7 --machine-id id_02
+```
+
+No board attached? Use the mock path to test the replay aggregation logic:
+
+```powershell
+cd firmware/tools
+python replay_client.py --mock --machine-id id_02
+```
+
+### Run tests
+
+```powershell
+.\ml\.venv\Scripts\python.exe -m pytest -q ml firmware/tools/tests
+```
+
+Current local result: **15 passed**.
+
+## Known Gaps
+
+- Live microphone capture is not implemented yet; current hardware validation uses
+  replayed feature vectors over UART.
+- Cloud monitoring is not part of the final project scope. The `cloud/` folder is
+  kept only as an optional extension path.
+- Firmware build CI, OTA, TLS/auth, and secure device-management flows are not
+  implemented because the project focus is on model-on-chip evaluation.
+- `id_00` remains a difficult machine ID: reconstruction-error scores for normal
+  and abnormal clips overlap strongly. Follow-up experiments improved it only
+  slightly or made it worse, so the limitation is documented rather than hidden.
+
+## Next Step
+
+The project is ready for final reporting/demo at the current scope:
+
+```text
+laptop training -> int8 export -> ESP32 replay inference -> laptop/board comparison
+```
+
+Optional future work can add MQTT/cloud monitoring, but it is not required for
+the final MachineSense result.
