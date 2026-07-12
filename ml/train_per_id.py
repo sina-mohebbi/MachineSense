@@ -59,7 +59,9 @@ def combine(scores_by_id, labels_by_id):
     use macro_average_auc() as the headline metric (see its docstring).
     """
     scores = np.concatenate([np.asarray(s) for s in scores_by_id.values()])
-    labels = np.concatenate([np.asarray(l) for l in labels_by_id.values()])
+    labels = np.concatenate(
+        [np.asarray(label_values) for label_values in labels_by_id.values()]
+    )
     return float(roc_auc_score(labels, scores))
 
 
