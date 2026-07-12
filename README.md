@@ -32,17 +32,35 @@ optional future work.
 |---|---:|
 | Pooled float model AUC | 0.7130 |
 | Pooled int8 model AUC | 0.6947 |
-| Per-ID float macro AUC | 0.7677 approx |
+| Per-ID float macro AUC | 0.7677 |
 | Per-ID int8 macro AUC | 0.7677 |
 | Best per-ID int8 AUC (`id_06`) | 0.9256 |
 | Deployed ESP32 target (`id_02`) int8 AUC | 0.8578 host-side |
-| ESP32 replay validation | Built, flashed, verified |
+| ESP32 replay validation (`id_02`) | Built, flashed, verified |
 | Firmware binary size | 501,616 bytes |
 
 The firmware README documents real ESP32 WROOM validation. On-device replay for
 `id_02` matched the host path closely, with no checksum or anomaly-flag
 mismatches in the documented runs. A short 20-clip hardware spot check is also
 saved in `ml/artifacts/per_id/id_02/metrics_on_device.json`.
+
+Final evaluation takeaway: the laptop and ESP32 paths agree closely for the
+deployed `id_02` model, and quantization did not meaningfully reduce the per-ID
+macro AUC. The strongest results are on `id_02` and `id_06`; `id_00` is kept as a
+documented hard case rather than hidden.
+
+### `id_00` follow-up experiments
+
+| Experiment | `id_00` AUC | Outcome |
+|---|---:|---|
+| Dense per-ID autoencoder, `FRAMES=5` | 0.5626 | Current baseline |
+| Dense per-ID autoencoder, `FRAMES=10` | 0.5931 int8 | Small improvement, larger input/model |
+| Conv2D autoencoder, `FRAMES=5` | 0.5392 | Worse than baseline |
+| Simple Z-score detector | 0.5453 | Worse than baseline |
+
+The `id_00` diagnostics showed heavy overlap between normal and abnormal
+reconstruction-error scores, so the weak result appears to be a data/model
+separability limitation for this machine ID rather than an ESP32 deployment bug.
 
 ## Architecture
 
