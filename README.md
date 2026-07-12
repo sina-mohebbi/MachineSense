@@ -5,9 +5,11 @@ trains an autoencoder on healthy machine audio, exports the model to int8
 TensorFlow Lite, and runs the anomaly detector on a real ESP32 with TensorFlow
 Lite for Microcontrollers.
 
-Current status: **Phase 1 and Phase 2 are working.** The ML pipeline trains on a
-laptop, exports deployable models, and the ESP32 firmware has been built,
-flashed, and validated in replay mode on real hardware.
+Current status: **final ESP32 model-evaluation scope is complete.** The ML
+pipeline trains on a laptop, exports deployable int8 models, and the ESP32
+firmware has been built, flashed, and validated in replay mode on real hardware.
+Cloud monitoring is intentionally left out of the final scope and treated as
+optional future work.
 
 ## What Works Now
 
@@ -21,6 +23,8 @@ flashed, and validated in replay mode on real hardware.
 - Host replay client that streams held-out feature vectors to the board.
 - Dataset-free tests for the ML smoke path and firmware replay tooling.
 - Basic GitHub Actions CI for Python lint and tests.
+- Follow-up experiments for the difficult `id_00` case, including alternate
+  clip scoring, longer context windows, and a small Conv2D autoencoder.
 
 ## Latest Results
 
@@ -58,11 +62,11 @@ ESP32 replay mode
     -> reconstruction error + anomaly threshold
     -> UART result + LED alert
 
-Next cloud loop
+Optional future cloud loop
   ESP32 anomaly event
     -> MQTT / EMQX
-    -> TimescaleDB
-    -> Grafana dashboard + alerts
+    -> time-series storage
+    -> dashboard / alerts
 ```
 
 ## Repo Layout
@@ -71,7 +75,7 @@ Next cloud loop
 |---|---|
 | `ml/` | Training, evaluation, quantization, model export, thresholds |
 | `firmware/` | ESP-IDF firmware, TFLite Micro inference, UART replay |
-| `cloud/` | Phase 3 scaffold for EMQX, TimescaleDB, and Grafana |
+| `cloud/` | Optional future monitoring scaffold; not required for final scope |
 | `evaluation/` | Planned benchmark/report package |
 | `docs/` | Architecture notes and supporting documentation |
 
@@ -80,9 +84,9 @@ Next cloud loop
 - [x] **Phase 0 - ML baseline:** MIMII preprocessing, autoencoder training, AUC evaluation.
 - [x] **Phase 1 - ESP32 replay inference:** int8 TFLite Micro model running on the board.
 - [x] **Phase 2 - Firmware pipeline:** FreeRTOS tasks, thresholding, LED/serial result path.
-- [ ] **Phase 3 - Connected telemetry:** publish anomaly events over MQTT to EMQX.
-- [ ] **Phase 4 - Production hardening:** firmware CI, OTA, TLS/auth, device configuration.
-- [ ] **Phase 5 - Final evaluation:** repeatable benchmark package, dashboard screenshots, demo media.
+- [x] **Phase 3 - Final evaluation:** compare laptop, int8, and ESP32 replay behavior.
+- [ ] **Optional future work - Connected telemetry:** publish anomaly events over MQTT.
+- [ ] **Optional future work - Production hardening:** firmware CI, OTA, TLS/auth, device configuration.
 
 ## Quick Start
 
@@ -135,18 +139,21 @@ Current local result: **15 passed**.
 
 - Live microphone capture is not implemented yet; current hardware validation uses
   replayed feature vectors over UART.
-- The cloud stack is scaffolded, but EMQX rules, TimescaleDB schema, Grafana
-  provisioning, TLS, and MQTT auth still need to be completed.
-- Firmware build CI is planned but not active yet.
-- OTA and secure device-management flows are not implemented yet.
-- Final evaluation artifacts, screenshots, and demo media are still pending.
+- Cloud monitoring is not part of the final project scope. The `cloud/` folder is
+  kept only as an optional extension path.
+- Firmware build CI, OTA, TLS/auth, and secure device-management flows are not
+  implemented because the project focus is on model-on-chip evaluation.
+- `id_00` remains a difficult machine ID: reconstruction-error scores for normal
+  and abnormal clips overlap strongly. Follow-up experiments improved it only
+  slightly or made it worse, so the limitation is documented rather than hidden.
 
 ## Next Step
 
-The next small milestone is to send one anomaly event into MQTT:
+The project is ready for final reporting/demo at the current scope:
 
 ```text
-ESP32 or replay bridge -> EMQX topic -> visible message in broker dashboard
+laptop training -> int8 export -> ESP32 replay inference -> laptop/board comparison
 ```
 
-After that, the project can connect the event to TimescaleDB and Grafana.
+Optional future work can add MQTT/cloud monitoring, but it is not required for
+the final MachineSense result.
