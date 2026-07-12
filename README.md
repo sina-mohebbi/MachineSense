@@ -62,6 +62,33 @@ The `id_00` diagnostics showed heavy overlap between normal and abnormal
 reconstruction-error scores, so the weak result appears to be a data/model
 separability limitation for this machine ID rather than an ESP32 deployment bug.
 
+### How `id_00` should be reported
+
+`id_00` should be presented as a negative/limitation case in the final report,
+not as a broken deployment. The same training, export, quantization, and replay
+pipeline works well for stronger IDs such as `id_02` and `id_06`, while `id_00`
+remains close to random ranking under reconstruction-error scoring.
+
+The best interpretation is:
+
+- The ESP32/TFLite-Micro implementation is not the source of the weak `id_00`
+  result, because the laptop and board paths agree closely on the deployed
+  `id_02` model.
+- The dense autoencoder baseline for `id_00` reaches only AUC 0.5626, and
+  alternative scoring strategies did not solve the issue.
+- Increasing the context window to `FRAMES=10` improved `id_00` only modestly to
+  0.5931 int8, while increasing model/input size.
+- A small Conv2D autoencoder and simple Z-score detector both performed worse
+  than the dense baseline.
+- Score diagnostics show that `id_00` normal and abnormal clips have very similar
+  reconstruction-error distributions, meaning this machine ID is weakly
+  separable with the current log-mel autoencoder approach.
+
+For the final project, the correct conclusion is therefore: MachineSense
+successfully demonstrates laptop-to-ESP32 model deployment and on-device anomaly
+scoring, while also identifying `id_00` as a documented limitation of the chosen
+unsupervised reconstruction method.
+
 ## Architecture
 
 ```text
