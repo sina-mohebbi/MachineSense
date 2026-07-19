@@ -29,4 +29,14 @@ bool RunOnFloatVector(const float* input, int input_len, float* out_mse);
 // FEATURE_DIM = 640).
 int FloatInputSize();
 
+// Times `iterations` back-to-back Invoke() calls and reports microseconds.
+// Call once at boot, before the replay pipeline starts (it writes the input
+// tensor). A synthetic input is representative here: the graph is a fixed-size
+// dense int8 network with no data-dependent branching, so inference time does
+// not vary with the input values. This isolates pure compute -- the replay
+// throughput seen on the host is UART-bound (~222 ms/vector at 115200 baud),
+// which would otherwise completely mask the real inference cost.
+bool BenchmarkLatency(int iterations, float* out_mean_us, float* out_min_us,
+                      float* out_max_us);
+
 }  // namespace inference

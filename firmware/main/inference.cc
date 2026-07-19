@@ -7,6 +7,7 @@
 #include "model_data.h"
 
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_log.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
@@ -116,6 +117,36 @@ bool RunOnFloatVector(const float* input, int input_len, float* out_mse) {
     sum_sq_error += static_cast<double>(diff) * diff;
   }
   *out_mse = static_cast<float>(sum_sq_error / input_len);
+  return true;
+}
+
+bool BenchmarkLatency(int iterations, float* out_mean_us, float* out_min_us,
+                      float* out_max_us) {
+  if (!interpreter || iterations <= 0) return false;
+
+  // Any fixed input works (latency is data-independent here); mid-scale zeros
+  // keep it simple and deterministic.
+  const int len = FloatInputSize();
+  for (int i = 0; i < len; i++) input_tensor->data.int8[i] = 0;
+
+  int64_t total_us = 0;
+  int64_t min_us = INT64_MAX;
+  int64_t max_us = 0;
+  for (int i = 0; i < iterations; i++) {
+    const int64_t start = esp_timer_get_time();
+    if (interpreter->Invoke() != kTfLiteOk) {
+      ESP_LOGE(TAG, "Invoke() failed during latency benchmark");
+      return false;
+    }
+    const int64_t elapsed = esp_timer_get_time() - start;
+    total_us += elapsed;
+    if (elapsed < min_us) min_us = elapsed;
+    if (elapsed > max_us) max_us = elapsed;
+  }
+
+  *out_mean_us = static_cast<float>(total_us) / iterations;
+  *out_min_us = static_cast<float>(min_us);
+  *out_max_us = static_cast<float>(max_us);
   return true;
 }
 

@@ -11,6 +11,9 @@ on-device results can be checked against the host.
 > 12-clip subset, per-vector scores within ~0.001 of the host). Anomaly detection at
 > the exported threshold: **F1 ≈ 0.81** (precision 0.85, recall 0.76). Sustained
 > multi-thousand-vector runs are crash-free with zero checksum/flag mismatches.
+> Inference costs **49.2 ms per vector** (timed on-device at boot, printed as
+> `MACHINESENSE_LATENCY`) — see the latency note in [`../README.md`](../README.md)
+> for the real-time implication.
 
 ## Architecture (Phase 2)
 

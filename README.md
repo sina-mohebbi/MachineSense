@@ -35,12 +35,31 @@ firmware has been built, flashed, and validated in replay mode on real hardware.
 | Best per-ID int8 AUC (`id_06`) | 0.9256 |
 | Deployed ESP32 target (`id_02`) int8 AUC | 0.8578 host-side |
 | ESP32 replay validation (`id_02`) | Built, flashed, verified |
-| Firmware binary size | 501,616 bytes |
+| ESP32 inference latency (`id_02`) | 49.2 ms per feature vector |
+| ESP32 tensor-arena RAM used | 15,756 of 24,576 bytes |
+| Firmware binary size | 495,088 bytes |
 
 The firmware README documents real ESP32 WROOM validation. On-device replay for
 `id_02` matched the host path closely, with no checksum or anomaly-flag
 mismatches in the documented runs. A short 20-clip hardware spot check is also
 saved in `ml/artifacts/per_id/id_02/metrics_on_device.json`.
+
+Inference latency is measured on the board at boot (100 timed `Invoke()` calls,
+printed as `MACHINESENSE_LATENCY`). It comes out at 49.2 ms per feature vector
+and is effectively constant, varying by only ~52 us across runs, which is what
+you expect from a fixed-size dense int8 graph with no data-dependent branching.
+The host-side replay rate is not a useful proxy for this: at 115200 baud the
+2560-byte request alone takes ~222 ms, so UART transfer dominates and hides the
+real compute cost.
+
+The practical consequence is that a 10 s clip is about 309 feature vectors, so
+roughly 15 s of inference - about 1.5x slower than real time at the full frame
+rate. That is fine for replay-mode evaluation, but a live-microphone build would
+need to subsample frames (a hop of ~768 instead of 512) or move to an ESP32-S3.
+The cost is not compiler-related: switching the build from `-Og` to `-O2` only
+changed latency from 49.3 ms to 49.2 ms. It is simply a dense-only model on a
+classic ESP32, which has no SIMD, and `esp-nn`'s optimised kernels mainly target
+convolution rather than fully-connected layers.
 
 Final evaluation takeaway: the laptop and ESP32 paths agree closely for the
 deployed `id_02` model, and quantization did not meaningfully reduce the per-ID

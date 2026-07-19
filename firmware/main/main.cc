@@ -41,6 +41,7 @@ namespace {
 constexpr int kVectorLen = 640;                       // == config.FEATURE_DIM
 constexpr int kVectorBytes = kVectorLen * sizeof(float);
 constexpr gpio_num_t kAnomalyLed = GPIO_NUM_2;        // onboard LED on most DevKits
+constexpr int kLatencyIterations = 100;               // boot-time inference benchmark
 
 struct WorkItem {
   float vec[kVectorLen];
@@ -131,6 +132,16 @@ extern "C" void app_main(void) {
   gpio_reset_pin(kAnomalyLed);
   gpio_set_direction(kAnomalyLed, GPIO_MODE_OUTPUT);
   gpio_set_level(kAnomalyLed, 0);
+
+  // Pure-compute inference cost, measured before the protocol starts. The
+  // host-side replay rate is UART-bound and says nothing about inference speed,
+  // so this is the number that shows the model meets a real-time budget.
+  float mean_us = 0.0f, min_us = 0.0f, max_us = 0.0f;
+  if (inference::BenchmarkLatency(kLatencyIterations, &mean_us, &min_us, &max_us)) {
+    printf("MACHINESENSE_LATENCY iters=%d mean_us=%.1f min_us=%.1f max_us=%.1f\n",
+           kLatencyIterations, mean_us, min_us, max_us);
+    fflush(stdout);
+  }
 
   // Marker printed BEFORE logs are muted so a terminal can confirm boot; the
   // host waits for this line before streaming binary frames.

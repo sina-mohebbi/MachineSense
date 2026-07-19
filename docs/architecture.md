@@ -44,4 +44,12 @@
 | `id_02` anomaly F1 @ threshold | 0.81 (precision 0.85 / recall 0.76) |
 | int8 model size (`id_02`) | ~311 KiB |
 | Tensor-arena RAM used | ~15.8 KiB (24 KiB allocated) |
+| Inference latency (ESP32 @ 240 MHz) | 49.2 ms/vector (100-iter mean; ~52 µs spread) |
+| Real-time margin | ~309 vectors per 10 s clip → ~15 s compute (~1.5× slower than real time) |
 | On-device vs host agreement | per-vector scores within ~0.001; 0 flag mismatches |
+
+Latency is measured on-device at boot rather than inferred from replay throughput —
+at 115200 baud the 2560-byte request takes ~222 ms, so UART transfer would otherwise
+mask the compute entirely. It is also compiler-independent: `-Og` → `-O2` moved it only
+49.3 → 49.2 ms. The cost is structural — a dense-only model on a classic ESP32 (no SIMD),
+where `esp-nn`'s optimised kernels mainly accelerate convolution, not fully-connected.
