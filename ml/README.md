@@ -1,4 +1,4 @@
-# ml/ — Phase 0: train the anomaly detector
+# ml: train the anomaly detector
 
 Trains a dense autoencoder on **normal** machine sound (MIMII) and evaluates anomaly-detection
 **AUC**, then quantizes to **int8** and exports a C header for TensorFlow Lite for Microcontrollers.
@@ -77,15 +77,17 @@ python export_per_id.py
 python evaluate_per_id_tflite.py
 ```
 
-Uses the exact same train/validation/test split as `train.py`. The headline metric is
-the **macro-average AUC** (the unweighted mean of each ID's own AUC) — not a pooled
-ranking across models. Each per-ID autoencoder is trained independently, so their
-reconstruction-error scales differ; ranking raw scores from different models against
-each other is not meaningful (a naive pooled-ranking AUC is also reported, but only
-for reference — it can look worse even when every individual model improved, purely
-from scale mismatch). Macro-average is also the metric that matches real deployment:
-one physical ESP32 monitors one physical machine, so it only ever ranks its own
-scores against its own threshold, never against another machine's.
+Uses the same train/validation/test split as `train.py`. The headline metric is the
+macro-average AUC, meaning the unweighted mean of each ID's own AUC, rather than a
+pooled ranking across models. Each per-ID autoencoder is trained independently, so
+their reconstruction-error scales differ, and ranking raw scores from different
+models against each other is not meaningful. A naive pooled-ranking AUC is also
+reported for reference, but it can look worse even when every individual model
+improved, purely because of that scale mismatch.
+
+Macro-average is also the metric that matches real deployment. One physical ESP32
+monitors one physical machine, so it only ever ranks its own scores against its own
+threshold, never against another machine's.
 
 Artifacts land under `artifacts/per_id/<id>/` (own `model.keras`,
 `normalization.npz`, `model_int8.tflite`, `model_data.cc` with variable name
