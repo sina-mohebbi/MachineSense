@@ -107,7 +107,20 @@ Artifacts land under `artifacts/per_id/<id>/` (own `model.keras`,
 | `export_per_id.py` | int8 quantization + C-header emit, per machine ID |
 | `evaluate_per_id_tflite.py` | host int8 AUC evaluation, per machine ID |
 | `compute_threshold.py` | pick an anomaly threshold from normal-train scores; emit `firmware/main/threshold.h` + report precision/recall/F1 |
+| `conftest.py` | puts `ml/` on `sys.path` so the tests can import these modules |
 | `tests/test_smoke.py` | dataset-free tests (also run in CI) |
+| `tests/test_training_utils.py` | dataset-free tests for dataset limiting + normalization |
+
+### `id_00` follow-up experiments
+
+These reproduce the numbers in the root README's `id_00` limitation section. Each
+writes to `artifacts/experiments/...` and leaves the main deployment artifacts alone.
+
+| File | Role |
+|---|---|
+| `run_frames_experiment.py` | retrain a per-ID model with a longer log-mel context (`--frames 10`) |
+| `run_id00_conv_experiment.py` | train a small Conv2D autoencoder for `id_00` |
+| `evaluate_scoring_strategies.py` | compare clip-scoring aggregations (mean vs p95 vs top-k) |
 
 ## How the anomaly score works
 
