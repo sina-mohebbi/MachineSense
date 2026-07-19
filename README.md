@@ -20,7 +20,8 @@ firmware has been built, flashed, and validated in replay mode on real hardware.
 - FreeRTOS replay pipeline: UART input, inference, scoring, anomaly flag, LED.
 - Host replay client that streams held-out feature vectors to the board.
 - Dataset-free tests for the ML smoke path and firmware replay tooling.
-- Basic GitHub Actions CI for Python lint and tests.
+- GitHub Actions CI running lint plus both dataset-free test suites (ML and
+  firmware replay tooling).
 - Follow-up experiments for the difficult `id_00` case, including alternate
   clip scoring, longer context windows, and a small Conv2D autoencoder.
 
