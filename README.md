@@ -53,7 +53,7 @@ runs. A 20-clip hardware spot check is saved in
 | Per-ID float (macro) | 0.7677 |
 | Per-ID int8 (macro) | 0.7677 |
 | Best per-ID int8 (`id_06`) | 0.9256 |
-| Weakest per-ID int8 (`id_00`) | 0.5626 |
+| Weakest per-ID int8 (`id_00`) | 0.5620 |
 
 Per-machine-ID models beat the pooled baseline, and int8 quantization did not
 meaningfully reduce the macro AUC.
