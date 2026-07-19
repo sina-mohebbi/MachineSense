@@ -50,6 +50,7 @@
 
 Latency is measured on-device at boot rather than inferred from replay throughput —
 at 115200 baud the 2560-byte request takes ~222 ms, so UART transfer would otherwise
-mask the compute entirely. It is also compiler-independent: `-Og` → `-O2` moved it only
-49.3 → 49.2 ms. The cost is structural — a dense-only model on a classic ESP32 (no SIMD),
-where `esp-nn`'s optimised kernels mainly accelerate convolution, not fully-connected.
+mask the compute entirely. **Measured:** it is compiler-independent — `-Og` → `-O2`
+moved it only 49.3 → 49.2 ms. **Inferred (not profiled):** the remaining cost is
+likely structural — a dense-only model on a classic ESP32 (no SIMD), where `esp-nn`
+mainly accelerates convolution rather than fully-connected layers.

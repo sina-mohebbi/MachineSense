@@ -56,10 +56,13 @@ The practical consequence is that a 10 s clip is about 309 feature vectors, so
 roughly 15 s of inference - about 1.5x slower than real time at the full frame
 rate. That is fine for replay-mode evaluation, but a live-microphone build would
 need to subsample frames (a hop of ~768 instead of 512) or move to an ESP32-S3.
-The cost is not compiler-related: switching the build from `-Og` to `-O2` only
-changed latency from 49.3 ms to 49.2 ms. It is simply a dense-only model on a
-classic ESP32, which has no SIMD, and `esp-nn`'s optimised kernels mainly target
-convolution rather than fully-connected layers.
+What is measured is that the cost is not compiler-related: switching the build
+from `-Og` to `-O2` changed latency only from 49.3 ms to 49.2 ms. The likely
+explanation, which was reasoned about rather than profiled, is that this is a
+dense-only model on a classic ESP32, which has no SIMD, and that `esp-nn`'s
+optimised kernels mainly target convolution rather than fully-connected layers.
+Confirming that would require profiling which kernel `FullyConnected` actually
+resolves to, which was not done here.
 
 Final evaluation takeaway: the laptop and ESP32 paths agree closely for the
 deployed `id_02` model, and quantization did not meaningfully reduce the per-ID
@@ -131,7 +134,6 @@ ESP32 replay mode
 |---|---|
 | `ml/` | Training, evaluation, quantization, model export, thresholds |
 | `firmware/` | ESP-IDF firmware, TFLite Micro inference, UART replay |
-| `evaluation/` | Planned benchmark/report package |
 | `docs/` | Architecture notes and supporting documentation |
 
 ## Roadmap
