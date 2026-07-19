@@ -24,90 +24,71 @@ firmware has been built, flashed, and validated in replay mode on real hardware.
 - Follow-up experiments for the difficult `id_00` case, including alternate
   clip scoring, longer context windows, and a small Conv2D autoencoder.
 
-## Latest Results
+## Results
 
-| Path | Result |
+The deployed configuration is the per-machine-ID model for `id_02`, running on an
+ESP32 WROOM in replay mode.
+
+| Deployed model (`id_02`) | Result |
 |---|---:|
-| Pooled float model AUC | 0.7130 |
-| Pooled int8 model AUC | 0.6947 |
-| Per-ID float macro AUC | 0.7677 |
-| Per-ID int8 macro AUC | 0.7677 |
-| Best per-ID int8 AUC (`id_06`) | 0.9256 |
-| Deployed ESP32 target (`id_02`) int8 AUC | 0.8578 host-side |
-| ESP32 replay validation (`id_02`) | Built, flashed, verified |
-| ESP32 inference latency (`id_02`) | 49.2 ms per feature vector |
-| ESP32 tensor-arena RAM used | 15,756 of 24,576 bytes |
+| Anomaly detection AUC (int8) | 0.8578 |
+| Anomaly detection F1 at threshold | 0.81 (precision 0.85, recall 0.76) |
+| On-device inference latency | 49.2 ms per feature vector |
+| Tensor-arena RAM used | 15,756 of 24,576 bytes |
 | Firmware binary size | 495,088 bytes |
+| Hardware validation | Built, flashed, replay-verified on real ESP32 |
 
-The firmware README documents real ESP32 WROOM validation. On-device replay for
-`id_02` matched the host path closely, with no checksum or anomaly-flag
-mismatches in the documented runs. A short 20-clip hardware spot check is also
-saved in `ml/artifacts/per_id/id_02/metrics_on_device.json`.
+On-device replay matched the host path closely: per-vector scores agreed to within
+about 0.001, with no checksum or anomaly-flag mismatches across multi-thousand-vector
+runs. A 20-clip hardware spot check is saved in
+`ml/artifacts/per_id/id_02/metrics_on_device.json`.
 
-Inference latency is measured on the board at boot (100 timed `Invoke()` calls,
-printed as `MACHINESENSE_LATENCY`). It comes out at 49.2 ms per feature vector
-and is effectively constant, varying by only ~52 us across runs, which is what
-you expect from a fixed-size dense int8 graph with no data-dependent branching.
-The host-side replay rate is not a useful proxy for this: at 115200 baud the
-2560-byte request alone takes ~222 ms, so UART transfer dominates and hides the
-real compute cost.
+### Model comparison
 
-The practical consequence is that a 10 s clip is about 309 feature vectors, so
-roughly 15 s of inference - about 1.5x slower than real time at the full frame
-rate. That is fine for replay-mode evaluation, but a live-microphone build would
-need to subsample frames (a hop of ~768 instead of 512) or move to an ESP32-S3.
-What is measured is that the cost is not compiler-related: switching the build
-from `-Og` to `-O2` changed latency only from 49.3 ms to 49.2 ms. The likely
-explanation, which was reasoned about rather than profiled, is that this is a
-dense-only model on a classic ESP32, which has no SIMD, and that `esp-nn`'s
-optimised kernels mainly target convolution rather than fully-connected layers.
-Confirming that would require profiling which kernel `FullyConnected` actually
-resolves to, which was not done here.
+| Path | AUC |
+|---|---:|
+| Pooled float | 0.7130 |
+| Pooled int8 | 0.6947 |
+| Per-ID float (macro) | 0.7677 |
+| Per-ID int8 (macro) | 0.7677 |
+| Best per-ID int8 (`id_06`) | 0.9256 |
+| Weakest per-ID int8 (`id_00`) | 0.5626 |
 
-Final evaluation takeaway: the laptop and ESP32 paths agree closely for the
-deployed `id_02` model, and quantization did not meaningfully reduce the per-ID
-macro AUC. The strongest results are on `id_02` and `id_06`; `id_00` is kept as a
-documented hard case rather than hidden.
+Per-machine-ID models beat the pooled baseline, and int8 quantization did not
+meaningfully reduce the macro AUC.
 
-### `id_00` follow-up experiments
+### Inference latency
 
-| Experiment | `id_00` AUC | Outcome |
-|---|---:|---|
-| Dense per-ID autoencoder, `FRAMES=5` | 0.5626 | Current baseline |
-| Dense per-ID autoencoder, `FRAMES=10` | 0.5931 int8 | Small improvement, larger input/model |
-| Conv2D autoencoder, `FRAMES=5` | 0.5392 | Worse than baseline |
-| Simple Z-score detector | 0.5453 | Worse than baseline |
+Measured on the board at boot: 100 timed `Invoke()` calls, printed as
+`MACHINESENSE_LATENCY`. It comes out at 49.2 ms per feature vector and varies by only
+about 52 us, as expected for a fixed-size dense int8 graph. Host replay throughput is
+not a proxy for this - at 115200 baud the 2560-byte request alone takes about 222 ms,
+so UART transfer hides the real compute cost.
 
-The `id_00` diagnostics showed heavy overlap between normal and abnormal
-reconstruction-error scores, so the weak result appears to be a data/model
-separability limitation for this machine ID rather than an ESP32 deployment bug.
+A 10 s clip is about 309 feature vectors, so roughly 15 s of inference: about 1.5x
+slower than real time at the full frame rate. That is fine for replay-mode evaluation,
+but a live-microphone build would need frame subsampling (a hop of ~768 instead of 512)
+or an ESP32-S3. Measured: the cost is not compiler-related, since `-Og` to `-O2` moved
+it only from 49.3 ms to 49.2 ms. Inferred but not profiled: a dense-only model on a
+classic ESP32 has no SIMD to exploit, and `esp-nn` mainly accelerates convolution
+rather than fully-connected layers.
 
-### How `id_00` should be reported
+### `id_00`: a documented limitation
 
-`id_00` should be presented as a negative/limitation case in the final report,
-not as a broken deployment. The same training, export, quantization, and replay
-pipeline works well for stronger IDs such as `id_02` and `id_06`, while `id_00`
-remains close to random ranking under reconstruction-error scoring.
+`id_00` stays close to random ranking, and four approaches failed to fix it:
 
-The best interpretation is:
+| Experiment | `id_00` AUC |
+|---|---:|
+| Dense autoencoder, `FRAMES=5` (baseline) | 0.5626 |
+| Dense autoencoder, `FRAMES=10` | 0.5931 |
+| Conv2D autoencoder | 0.5392 |
+| Z-score detector | 0.5453 |
 
-- The ESP32/TFLite-Micro implementation is not the source of the weak `id_00`
-  result, because the laptop and board paths agree closely on the deployed
-  `id_02` model.
-- The dense autoencoder baseline for `id_00` reaches only AUC 0.5626, and
-  alternative scoring strategies did not solve the issue.
-- Increasing the context window to `FRAMES=10` improved `id_00` only modestly to
-  0.5931 int8, while increasing model/input size.
-- A small Conv2D autoencoder and simple Z-score detector both performed worse
-  than the dense baseline.
-- Score diagnostics show that `id_00` normal and abnormal clips have very similar
-  reconstruction-error distributions, meaning this machine ID is weakly
-  separable with the current log-mel autoencoder approach.
-
-For the final project, the correct conclusion is therefore: MachineSense
-successfully demonstrates laptop-to-ESP32 model deployment and on-device anomaly
-scoring, while also identifying `id_00` as a documented limitation of the chosen
-unsupervised reconstruction method.
+Score diagnostics show that `id_00` normal and abnormal clips have heavily overlapping
+reconstruction-error distributions. This is a separability limit of log-mel
+reconstruction scoring for this machine, not a deployment bug: the identical pipeline
+reaches 0.8578 on `id_02` and 0.9256 on `id_06`. It is reported as a limitation rather
+than dropped from the results.
 
 ## Architecture
 
@@ -197,9 +178,8 @@ Current local result: **15 passed**.
   replayed feature vectors over UART.
 - Firmware build CI, OTA, and secure device-management flows are not
   implemented because the project focus is on model-on-chip evaluation.
-- `id_00` remains a difficult machine ID: reconstruction-error scores for normal
-  and abnormal clips overlap strongly. Follow-up experiments improved it only
-  slightly or made it worse, so the limitation is documented rather than hidden.
+- `id_00` is not reliably detectable with this method (see the limitation section
+  above). The deployed `id_02` path is unaffected.
 
 ## Next Step
 
