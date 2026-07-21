@@ -52,7 +52,7 @@ replace that source with an I2S microphone and on-device log-mel via esp-dsp.
 | Tensor-arena RAM used | 15,756 of 24,576 bytes |
 | Inference latency (ESP32 at 240 MHz) | 49.2 ms per vector (100-iteration mean, about 52 us spread) |
 | Real-time margin | about 309 vectors per 10 s clip, so about 15 s of compute |
-| On-device vs host agreement | per-vector scores within about 0.001, 0 flag mismatches |
+| On-device vs host agreement | 60-clip matched run: 0.8933 on board vs 0.8944 host, identical confusion matrix, 0 flag mismatches |
 
 Latency is measured on the board at boot rather than inferred from replay
 throughput. At 115200 baud the 2560-byte request alone takes about 222 ms, so

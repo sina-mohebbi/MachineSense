@@ -39,10 +39,18 @@ ESP32 WROOM in replay mode.
 | Firmware binary size | 495,088 bytes |
 | Hardware validation | Built, flashed, replay-verified on real ESP32 |
 
-On-device replay matched the host path closely: per-vector scores agreed to within
-about 0.001, with no checksum or anomaly-flag mismatches across multi-thousand-vector
-runs. A 20-clip hardware spot check is saved in
+The board was checked directly against the host on the same clips, using the same
+seeded sample so both paths score an identical set. Over a 60-clip matched run
+(18,540 inferences) the board reached AUC 0.8933 against the host's 0.8944, a
+difference of 0.0011, and both paths produced exactly the same confusion matrix:
+25 true positives, 8 false positives, 5 false negatives, 22 true negatives, F1
+0.7937. There were no checksum or anomaly-flag mismatches. That result is saved in
 `ml/artifacts/per_id/id_02/metrics_on_device.json`.
+
+Note that 0.8933 and the 0.8578 above are different populations. The 0.8578 is the
+host AUC over the full 562-clip test set, while 0.8933 comes from a balanced
+60-clip subset that happens to be easier. The point of the matched run is not the
+absolute value but the agreement between the two paths.
 
 ### Model comparison
 
