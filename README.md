@@ -1,56 +1,56 @@
-# MachineSense - ESP32 On-Device Anomaly Detection
+# MachineSense: on-device sound anomaly detection on an ESP32
 
-MachineSense is an embedded ML project for industrial sound anomaly detection. It
-trains an autoencoder on healthy machine audio, exports the model to int8
-TensorFlow Lite, and runs the anomaly detector on a real ESP32 with TensorFlow
-Lite for Microcontrollers.
+Trains an autoencoder on healthy machine sound, quantizes it to int8 TensorFlow
+Lite, and runs it on a real ESP32 using TensorFlow Lite for Microcontrollers. The
+board computes a reconstruction-error score for each audio feature vector,
+compares it against a threshold, and raises an anomaly flag on its LED.
 
-Current status: **final ESP32 model-evaluation scope is complete.** The ML
-pipeline trains on a laptop, exports deployable int8 models, and the ESP32
-firmware has been built, flashed, and validated in replay mode on real hardware.
+Dataset: MIMII fan (DCASE 2020 Task 2). Hardware: ESP32 WROOM, ESP-IDF v6.0.1.
 
-## What Works Now
-
-- Laptop ML pipeline for the MIMII fan dataset.
-- Leakage-safe train/test split by machine ID and clip.
-- Pooled autoencoder baseline and per-machine-ID autoencoders.
-- Full int8 TFLite export for ESP32 deployment.
-- Generated C/C++ model data and anomaly thresholds for firmware.
-- ESP32 TensorFlow Lite Micro inference.
-- FreeRTOS replay pipeline: UART input, inference, scoring, anomaly flag, LED.
-- Host replay client that streams held-out feature vectors to the board.
-- Dataset-free tests for the ML smoke path and firmware replay tooling.
-- GitHub Actions CI running lint plus both dataset-free test suites (ML and
-  firmware replay tooling).
-- Follow-up experiments for the difficult `id_00` case, including alternate
-  clip scoring, longer context windows, and a small Conv2D autoencoder.
-
-## Results
-
-The deployed configuration is the per-machine-ID model for `id_02`, running on an
-ESP32 WROOM in replay mode.
+## Key results
 
 | Deployed model (`id_02`) | Result |
 |---|---:|
-| Anomaly detection AUC (int8) | 0.8578 |
-| Anomaly detection F1 at threshold | 0.81 (precision 0.85, recall 0.76) |
+| Anomaly detection AUC, int8, 562-clip test set | 0.8578 |
+| F1 at the chosen threshold | 0.81 (precision 0.85, recall 0.76) |
 | On-device inference latency | 49.2 ms per feature vector |
 | Tensor-arena RAM used | 15,756 of 24,576 bytes |
 | Firmware binary size | 495,088 bytes |
-| Hardware validation | Built, flashed, replay-verified on real ESP32 |
+| Automated tests | 15, run in CI |
 
-The board was checked directly against the host on the same clips, using the same
-seeded sample so both paths score an identical set. Over a 60-clip matched run
-(18,540 inferences) the board reached AUC 0.8933 against the host's 0.8944, a
-difference of 0.0011, and both paths produced exactly the same confusion matrix:
-25 true positives, 8 false positives, 5 false negatives, 22 true negatives, F1
-0.7937. There were no checksum or anomaly-flag mismatches. That result is saved in
-`ml/artifacts/per_id/id_02/metrics_on_device.json`.
+The board matches the laptop. On a 60-clip matched sample of 18,540 inferences,
+scoring the identical clips on both paths, the ESP32 reached AUC 0.8933 against
+the host's 0.8944. Both produced the same confusion matrix: 25 true positives, 8
+false positives, 5 false negatives, 22 true negatives. Every clip fell on the same
+side of the threshold, with zero checksum or anomaly-flag mismatches.
 
-Note that 0.8933 and the 0.8578 above are different populations. The 0.8578 is the
-host AUC over the full 562-clip test set, while 0.8933 comes from a balanced
-60-clip subset that happens to be easier. The point of the matched run is not the
-absolute value but the agreement between the two paths.
+That 0.8933 comes from a balanced 60-clip subset and is not comparable to the
+0.8578 full-set figure. The matched run shows agreement between the two paths, not
+a better score.
+
+## How it works
+
+```text
+Laptop
+  MIMII WAV files
+    -> log-mel features
+    -> autoencoder trained on normal audio only
+    -> int8 TFLite export
+    -> C model data + anomaly threshold
+
+ESP32 (replay mode)
+  host streams held-out feature vectors over UART
+    -> rx task
+    -> TFLite Micro inference task
+    -> reconstruction error, threshold, anomaly flag
+    -> result back over UART, LED on anomaly
+```
+
+Replay mode means the board runs the real quantized model on real held-out data
+without needing a microphone, so on-device results can be compared directly
+against the laptop.
+
+## Detailed results
 
 ### Model comparison
 
@@ -58,103 +58,71 @@ absolute value but the agreement between the two paths.
 |---|---:|
 | Pooled float | 0.7130 |
 | Pooled int8 | 0.6947 |
-| Per-ID float (macro) | 0.7677 |
-| Per-ID int8 (macro) | 0.7677 |
-| Best per-ID int8 (`id_06`) | 0.9256 |
-| Weakest per-ID int8 (`id_00`) | 0.5620 |
+| Per-ID float, macro | 0.7677 |
+| Per-ID int8, macro | 0.7677 |
+| Best per-ID int8, `id_06` | 0.9256 |
+| Weakest per-ID int8, `id_00` | 0.5620 |
 
 Per-machine-ID models beat the pooled baseline, and int8 quantization did not
 meaningfully reduce the macro AUC.
 
 ### Inference latency
 
-Measured on the board at boot: 100 timed `Invoke()` calls, printed as
-`MACHINESENSE_LATENCY`. It comes out at 49.2 ms per feature vector and varies by only
-about 52 us, as expected for a fixed-size dense int8 graph. Host replay throughput is
-not a proxy for this - at 115200 baud the 2560-byte request alone takes about 222 ms,
-so UART transfer hides the real compute cost.
+Measured on the board at boot from 100 timed `Invoke()` calls, printed as
+`MACHINESENSE_LATENCY`. It is 49.2 ms per feature vector and varies by only about
+52 us, as expected for a fixed-size dense int8 graph. Host replay throughput is
+not a proxy for this, because at 115200 baud the 2560-byte request alone takes
+about 222 ms and hides the real compute cost.
 
-A 10 s clip is about 309 feature vectors, so roughly 15 s of inference: about 1.5x
-slower than real time at the full frame rate. That is fine for replay-mode evaluation,
-but a live-microphone build would need frame subsampling (a hop of ~768 instead of 512)
-or an ESP32-S3. Measured: the cost is not compiler-related, since `-Og` to `-O2` moved
-it only from 49.3 ms to 49.2 ms. Inferred but not profiled: a dense-only model on a
-classic ESP32 has no SIMD to exploit, and `esp-nn` mainly accelerates convolution
-rather than fully-connected layers.
+A 10 s clip is about 309 feature vectors, so roughly 15 s of inference, or about
+1.5x slower than real time at the full frame rate. That is fine for replay-mode
+evaluation, but a live-microphone build would need frame subsampling or an
+ESP32-S3.
+
+The cost is measurably not compiler-related, since `-Og` to `-O2` moved it only
+from 49.3 ms to 49.2 ms. The likely reason, reasoned about rather than profiled,
+is that this is a dense-only model on a classic ESP32 with no SIMD, and `esp-nn`
+mainly accelerates convolution rather than fully-connected layers.
 
 ### `id_00`: a documented limitation
 
-`id_00` stays close to random ranking, and four approaches failed to fix it:
+One of the four machine IDs stays close to random ranking, and four approaches
+failed to fix it:
 
 | Experiment | `id_00` AUC |
 |---|---:|
-| Dense autoencoder, `FRAMES=5` (baseline) | 0.5626 |
+| Dense autoencoder, `FRAMES=5`, baseline | 0.5626 |
 | Dense autoencoder, `FRAMES=10` | 0.5931 |
 | Conv2D autoencoder | 0.5392 |
 | Z-score detector | 0.5453 |
 
-Score diagnostics show that `id_00` normal and abnormal clips have heavily overlapping
-reconstruction-error distributions. This is a separability limit of log-mel
-reconstruction scoring for this machine, not a deployment bug: the identical pipeline
-reaches 0.8578 on `id_02` and 0.9256 on `id_06`. It is reported as a limitation rather
-than dropped from the results.
+Score diagnostics show that `id_00` normal and abnormal clips have heavily
+overlapping reconstruction-error distributions. This is a separability limit of
+log-mel reconstruction scoring for that machine, not a deployment bug: the same
+pipeline reaches 0.8578 on `id_02` and 0.9256 on `id_06`. It is reported rather
+than dropped.
 
-## Architecture
-
-```text
-Laptop training
-  MIMII WAV files
-    -> log-mel features
-    -> autoencoder training
-    -> int8 TFLite export
-    -> C/C++ model data + threshold
-
-ESP32 replay mode
-  PC replay_client.py
-    -> UART feature vectors
-    -> ESP32 FreeRTOS rx task
-    -> TFLite Micro inference task
-    -> reconstruction error + anomaly threshold
-    -> UART result + LED alert
-```
-
-## Repo Layout
+## Repo layout
 
 | Folder | Purpose |
 |---|---|
 | `ml/` | Training, evaluation, quantization, model export, thresholds |
 | `firmware/` | ESP-IDF firmware, TFLite Micro inference, UART replay |
-| `docs/` | Architecture notes and supporting documentation |
+| `docs/` | Architecture notes |
 
-## Roadmap
+## Quick start
 
-- [x] **Phase 0 - ML baseline:** MIMII preprocessing, autoencoder training, AUC evaluation.
-- [x] **Phase 1 - ESP32 replay inference:** int8 TFLite Micro model running on the board.
-- [x] **Phase 2 - Firmware pipeline:** FreeRTOS tasks, thresholding, LED/serial result path.
-- [x] **Phase 3 - Final evaluation:** compare laptop, int8, and ESP32 replay behavior.
-- [ ] **Optional future work - Production hardening:** firmware CI, OTA, device configuration.
-
-## Quick Start
-
-### Train and export the model
+Train and export the per-machine-ID deployment model:
 
 ```powershell
 cd ml
 pip install -r requirements.txt
-python train.py
-python export_tflite.py
-```
-
-For the per-machine-ID deployment path:
-
-```powershell
-cd ml
 python train_per_id.py
 python export_per_id.py
 python compute_threshold.py --machine-id id_02
 ```
 
-### Build and test the ESP32 firmware
+Build, flash, and run against the board:
 
 ```powershell
 cd firmware
@@ -163,37 +131,29 @@ idf.py -p COM7 build flash
 
 cd tools
 pip install -r requirements.txt
-python replay_client.py --port COM7 --machine-id id_02
+python replay_client.py --port COM7 --machine-id id_02 --limit-files 20
 ```
 
-No board attached? Use the mock path to test the replay aggregation logic:
+With no board attached, the same math runs in Python:
 
 ```powershell
-cd firmware/tools
 python replay_client.py --mock --machine-id id_02
 ```
 
-### Run tests
+Run the tests:
 
 ```powershell
 .\ml\.venv\Scripts\python.exe -m pytest -q ml firmware/tools/tests
 ```
 
-Current local result: **15 passed**.
+See [`ml/README.md`](ml/README.md) and [`firmware/README.md`](firmware/README.md)
+for details, and [`docs/architecture.md`](docs/architecture.md) for design notes.
 
-## Known Gaps
+## Limitations
 
-- Live microphone capture is not implemented yet; current hardware validation uses
-  replayed feature vectors over UART.
-- Firmware build CI, OTA, and secure device-management flows are not
-  implemented because the project focus is on model-on-chip evaluation.
-- `id_00` is not reliably detectable with this method (see the limitation section
-  above). The deployed `id_02` path is unaffected.
-
-## Next Step
-
-The project is ready for final reporting/demo at the current scope:
-
-```text
-laptop training -> int8 export -> ESP32 replay inference -> laptop/board comparison
-```
+- Hardware validation uses feature vectors replayed over UART. Live microphone
+  capture is not implemented.
+- `id_00` is not reliably detectable with this method. The deployed `id_02` path
+  is unaffected.
+- CI runs lint and the dataset-free tests. It does not build the ESP-IDF firmware,
+  which needs the full toolchain and the generated model headers.
