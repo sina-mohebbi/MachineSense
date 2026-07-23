@@ -55,6 +55,11 @@ Replay mode means the board runs the real quantized model on real held-out data
 without needing a microphone, so on-device results can be compared directly
 against the laptop.
 
+<p align="center">
+  <img src="docs/images/led-on.jpg" alt="ESP32 with the anomaly LED lit" width="300"><br>
+  <em>Anomaly LED lit on the ESP32 WROOM when a replayed clip scores above the threshold.</em>
+</p>
+
 ## Detailed results
 
 ### Model comparison
