@@ -7,6 +7,11 @@ compares it against a threshold, and raises an anomaly flag on its LED.
 
 Dataset: MIMII fan (DCASE 2020 Task 2). Hardware: ESP32 WROOM, ESP-IDF v6.0.1.
 
+![ESP32 running the anomaly detector](docs/images/demo.gif)
+
+*ESP32 WROOM running the int8 model in replay mode: the on-board LED lights when
+the reconstruction error crosses the anomaly threshold.*
+
 ## Key results
 
 | Deployed model (`id_02`) | Result |
