@@ -1,4 +1,4 @@
-"""Central configuration for the MachineSense ML pipeline (Phase 0).
+"""Central configuration for the edgeAI-MachineSense ML pipeline (Phase 0).
 
 All audio/feature parameters follow the DCASE 2020 Task 2 baseline so results are
 comparable to published numbers on the MIMII dataset.

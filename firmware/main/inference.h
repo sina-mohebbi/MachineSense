@@ -1,4 +1,4 @@
-// TFLite-Micro wrapper around the MachineSense autoencoder (see ml/model.py).
+// TFLite-Micro wrapper around the edgeAI-MachineSense autoencoder (see ml/model.py).
 #pragma once
 
 namespace inference {

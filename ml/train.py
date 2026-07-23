@@ -39,7 +39,7 @@ def file_score(model, path, mean, std) -> float:
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train the MachineSense autoencoder")
+    parser = argparse.ArgumentParser(description="Train the edgeAI-MachineSense autoencoder")
     parser.add_argument("--epochs", type=int, default=config.EPOCHS)
     parser.add_argument("--patience", type=int, default=config.PATIENCE)
     parser.add_argument(

@@ -1,4 +1,4 @@
-# MachineSense: on-device sound anomaly detection on an ESP32
+# edgeAI-MachineSense: on-device sound anomaly detection on an ESP32
 
 Trains an autoencoder on healthy machine sound, quantizes it to int8 TensorFlow
 Lite, and runs it on a real ESP32 using TensorFlow Lite for Microcontrollers. The

@@ -1,4 +1,4 @@
-# MachineSense architecture
+# edgeAI-MachineSense architecture
 
 ## Pipeline
 
@@ -32,7 +32,7 @@ replace that source with an I2S microphone and on-device log-mel via esp-dsp.
 
 ## What this project adds over library-desk-sense
 
-| | library-desk-sense | MachineSense |
+| | library-desk-sense | edgeAI-MachineSense |
 |---|---|---|
 | Intelligence | server-side analytics | on-device |
 | Signal processing | low-rate sensing | log-mel features |
