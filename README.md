@@ -7,6 +7,8 @@ compares it against a threshold, and raises an anomaly flag on its LED.
 
 Dataset: MIMII fan (DCASE 2020 Task 2). Hardware: ESP32 WROOM, ESP-IDF v6.0.1.
 
+**Tech stack:** C++ (ESP-IDF, TensorFlow Lite for Microcontrollers, FreeRTOS) on the ESP32 · Python (TensorFlow/Keras) for training, quantization, and evaluation.
+
 ![ESP32 running the anomaly detector](docs/images/demo.gif)
 
 *ESP32 WROOM running the int8 model in replay mode: the on-board LED lights when
