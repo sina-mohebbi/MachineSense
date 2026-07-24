@@ -1,9 +1,9 @@
 # edgeAI-MachineSense: on-device sound anomaly detection on an ESP32
 
-Trains an autoencoder on healthy machine sound, quantizes it to int8 TensorFlow
-Lite, and runs it on a real ESP32 using TensorFlow Lite for Microcontrollers. The
-board computes a reconstruction-error score for each audio feature vector,
-compares it against a threshold, and raises an anomaly flag on its LED.
+An autoencoder is trained on healthy machine sound, quantized to int8 TensorFlow
+Lite, and run on a real ESP32 with TFLite Micro. The board scores each audio frame
+by reconstruction error and raises an anomaly flag on its LED when the score
+crosses a threshold.
 
 Dataset: MIMII fan (DCASE 2020 Task 2). Hardware: ESP32 WROOM, ESP-IDF v6.0.1.
 
